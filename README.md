@@ -17,9 +17,8 @@ AssignMate is a web-based dashboard for managing team tasks and projects. It all
 ## Setup
 
 1. Install dependencies: `npm install`
-2. Configure `.env` with database credentials
-3. Start services:
+2. Start services:
    - `node gateway/server.js`
    - `node user_service/server.js`
    - `node task_service/server.js`
-4. Visit http://localhost:20201 in your browser
+3. Visit http://localhost:20201 in your browser
