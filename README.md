@@ -2,7 +2,7 @@
 
 AssignMate is a web-based dashboard for managing team tasks and projects. It allows administrators to register team members, define skills, create tasks/projects, auto-assign tasks, and track progress.
 
-# Group Members
+## Group Members
 - Cabahug, Lorenze Antoinette
 - Bocado, Denise
 - Suganob, Torcy Klyne
