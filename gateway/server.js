@@ -6,8 +6,11 @@ const cors = require('cors');
 const app = express();
 app.use(cors());
 
-// 1. Serve the frontend dashboard directly from the main folder
 app.use(express.static(path.join(__dirname, '../main')));
+
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '../main/task.html'));
+});
 
 // 2. Route to User Service (Strips the prefix)
 app.use('/user_service', createProxyMiddleware({ 

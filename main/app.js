@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDashboardData();
 });
 
+// Kept for backward compatibility but no longer used in navigation
 function showSection(id, el) {
     document.querySelectorAll('.tab-section').forEach(s => s.style.display = 'none');
     const target = document.getElementById(id);
@@ -28,6 +29,37 @@ function showSection(id, el) {
 }
 
 window.showSection = showSection;
+
+// --- COLLAPSIBLE FORM PANELS ---
+function togglePanel(btn) {
+    const panel = btn.closest('.panel');
+    if (!panel) return;
+    const body = panel.querySelector('.panel-body');
+    if (!body) return;
+
+    const isOpen = panel.classList.contains('open');
+
+    if (isOpen) {
+        // Closing: lock in the current rendered height, then animate down to 0
+        body.style.height = body.scrollHeight + 'px';
+        requestAnimationFrame(() => {
+            body.style.height = '0px';
+        });
+        panel.classList.remove('open');
+    } else {
+        // Opening: animate from 0 to the content's natural height,
+        // then release to 'auto' so content can still resize freely
+        panel.classList.add('open');
+        body.style.height = body.scrollHeight + 'px';
+        body.addEventListener('transitionend', function onDone(e) {
+            if (e.propertyName === 'height' && panel.classList.contains('open')) {
+                body.style.height = 'auto';
+                body.removeEventListener('transitionend', onDone);
+            }
+        });
+    }
+}
+window.togglePanel = togglePanel;
 
 // --- DATA LOADING ---
 async function loadDashboardData() {
@@ -111,12 +143,18 @@ function updateStats() {
     const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
     const velocity = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 10) : 0;
 
-    document.getElementById('stat-unassigned').textContent = unassignedCount;
-    document.getElementById('stat-users').textContent = userCount;
-    document.getElementById('stat-completion').textContent = completionRate + '%';
-    document.getElementById('stat-completion-bar').style.width = completionRate + '%';
-    document.getElementById('stat-velocity').textContent = velocity;
-    document.getElementById('stat-velocity-bar').style.width = Math.min(velocity * 10, 100) + '%';
+    const statUnassigned = document.getElementById('stat-unassigned');
+    if (statUnassigned) statUnassigned.textContent = unassignedCount;
+    const statUsers = document.getElementById('stat-users');
+    if (statUsers) statUsers.textContent = userCount;
+    const statCompletion = document.getElementById('stat-completion');
+    if (statCompletion) statCompletion.textContent = completionRate + '%';
+    const statCompletionBar = document.getElementById('stat-completion-bar');
+    if (statCompletionBar) statCompletionBar.style.width = completionRate + '%';
+    const statVelocity = document.getElementById('stat-velocity');
+    if (statVelocity) statVelocity.textContent = velocity;
+    const statVelocityBar = document.getElementById('stat-velocity-bar');
+    if (statVelocityBar) statVelocityBar.style.width = Math.min(velocity * 10, 100) + '%';
 
     // Project stats
     const projects = tasks.filter(t => t.task_type === 'project');

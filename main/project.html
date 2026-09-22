@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AssignMate | Projects</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <nav class="sidebar">
+        <h2>
+            <span class="logo-dot"></span>
+            AssignMate
+        </h2>
+        <ul class="nav-links">
+            <li><a href="task.html">Overview</a></li>
+            <li class="active"><a href="project.html">Projects</a></li>
+            <li><a href="user.html">Team Members</a></li>
+        </ul>
+        <div class="user-profile">
+            <div style="font-size: 0.75rem; color: #a78bfa; margin-bottom: 4px;">Signed in as</div>
+            <div id="user-display" style="font-weight: 600; color: #fff; font-size: 0.9rem;">Admin User</div>
+        </div>
+    </nav>
+
+    <main class="main-content">
+
+        <!-- Projects Tab -->
+        <section id="project-section" class="tab-section">
+            <header>
+                <h1>Projects &#10022;</h1>
+                <p class="subtitle">Track progress across all projects and sprints.</p>
+            </header>
+
+            <div class="stats-row">
+                <div class="stat-card purple">
+                    <div class="stat-label">Active Projects</div>
+                    <div class="stat-value" id="stat-active-projects">0</div>
+                </div>
+                <div class="stat-card green">
+                    <div class="stat-label">Avg. Completion</div>
+                    <div class="stat-value" id="stat-avg-completion">0%</div>
+                    <div class="progress-bar mini">
+                        <div class="progress-fill" id="stat-avg-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card panel" id="project-form-panel">
+                <button class="panel-toggle" onclick="togglePanel(this)">
+                    <span class="panel-toggle-left">
+                        <span class="panel-toggle-icon">&#10022;</span>
+                        <span class="panel-toggle-title">Create New Project</span>
+                    </span>
+                    <span class="panel-chevron">&#9662;</span>
+                </button>
+                <div class="panel-body">
+                    <div class="panel-body-inner">
+                        <div class="form-group" style="margin-bottom: 18px;">
+                            <label for="project-title">Project name</label>
+                            <input type="text" id="project-title" class="input-title" placeholder="e.g. Website Redesign">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="project-description">Description</label>
+                                <textarea id="project-description" placeholder="What is this project about?"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="project-specifications">Detailed specifications</label>
+                                <textarea id="project-specifications" placeholder="Scope, milestones, or constraints"></textarea>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn btn-primary" onclick="createProject()">+ Create Project</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section-header">
+                <span class="section-title">Project Progress</span>
+            </div>
+
+            <div class="project-list" id="project-container">
+                <div class="empty-state" id="project-empty">
+                    <div class="empty-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                    </div>
+                    <p>No projects yet &mdash; create one above!</p>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="app.js"></script>
+
+</body>
+</html>

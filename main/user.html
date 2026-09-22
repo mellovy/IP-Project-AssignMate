@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AssignMate | Team Members</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <nav class="sidebar">
+        <h2>
+            <span class="logo-dot"></span>
+            AssignMate
+        </h2>
+        <ul class="nav-links">
+            <li><a href="task.html">Overview</a></li>
+            <li><a href="project.html">Projects</a></li>
+            <li class="active"><a href="user.html">Team Members</a></li>
+        </ul>
+        <div class="user-profile">
+            <div style="font-size: 0.75rem; color: #a78bfa; margin-bottom: 4px;">Signed in as</div>
+            <div id="user-display" style="font-weight: 600; color: #fff; font-size: 0.9rem;">Admin User</div>
+        </div>
+    </nav>
+
+    <main class="main-content">
+
+        <!-- Team Members Tab -->
+        <section id="user-section" class="tab-section">
+            <header>
+                <h1>Team Members &#10022;</h1>
+                <p class="subtitle">Add and manage your team's skill sets.</p>
+            </header>
+
+            <div class="card panel" id="user-form-panel">
+                <button class="panel-toggle" onclick="togglePanel(this)">
+                    <span class="panel-toggle-left">
+                        <span class="panel-toggle-icon">&#10022;</span>
+                        <span class="panel-toggle-title">Add Team Member</span>
+                    </span>
+                    <span class="panel-chevron">&#9662;</span>
+                </button>
+                <div class="panel-body">
+                    <div class="panel-body-inner">
+                        <div class="form-layout">
+                            <div class="form-main">
+                                <div class="form-group">
+                                    <label for="user-name">Full name</label>
+                                    <input type="text" id="user-name" class="input-title" placeholder="e.g. Jamie Rivera">
+                                </div>
+                                <div class="form-group">
+                                    <label for="user-avatar">Avatar URL <span class="label-optional">(optional)</span></label>
+                                    <input type="text" id="user-avatar" placeholder="https://...">
+                                </div>
+                                <div class="form-row form-row-inline" style="margin-bottom: 0;">
+                                    <div class="form-group grow-2">
+                                        <label for="new-skill-name">New skill</label>
+                                        <input type="text" id="new-skill-name" placeholder="Not listed yet? Add it here">
+                                    </div>
+                                    <button class="btn btn-ghost btn-inline" onclick="addNewSkill()">+ Add Skill</button>
+                                </div>
+                            </div>
+                            <div class="form-meta">
+                                <span class="form-meta-label">skills</span>
+                                <div class="skill-selector" id="user-skill-selector">
+                                    <!-- Skills populated by JS -->
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn btn-primary" onclick="addUser()">+ Add Member</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section-header">
+                <span class="section-title">Team</span>
+            </div>
+
+            <div id="user-container" class="user-list">
+                <div class="empty-state" id="user-empty">
+                    <div class="empty-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                            <circle cx="9" cy="7" r="4"/>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
+                        </svg>
+                    </div>
+                    <p>No team members yet &mdash; add one above!</p>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="app.js"></script>
+
+</body>
+</html>
