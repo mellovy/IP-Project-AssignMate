@@ -67,6 +67,32 @@ async function loadDashboardData() {
     updateStats();
     populateSkillDropdowns();
     await populateParentSelector();
+
+    const deadlineInput = document.getElementById('task-deadline');
+    if (deadlineInput && !deadlineInput.value) {
+        const def = new Date();
+        def.setDate(def.getDate() + 7);
+        deadlineInput.value = def.toISOString().split('T')[0];
+    }
+
+    if (document.getElementById('project-container')) {
+        loadProjects();
+    }
+}
+
+function formatDeadlineDisplay(dateStr) {
+    if (!dateStr) return 'No deadline';
+    try {
+        const clean = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+        const parts = clean.split('-');
+        if (parts.length === 3) {
+            const d = new Date(Date.UTC(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10)));
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+        }
+        return dateStr;
+    } catch (e) {
+        return dateStr;
+    }
 }
 
 async function loadSkills() {
@@ -203,12 +229,16 @@ async function loadUsers() {
             <div class="user-row" style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; align-items: center; gap: 14px;">
                     <div class="user-avatar" style="background-image: url('${user.avatar_url || ''}'); background-size: cover;">
-                        ${user.avatar_url ? '' : user.name.charAt(0)}
+                        ${user.avatar_url ? '' : escapeHtml(user.name).charAt(0)}
                     </div>
                     <div class="user-info">
-                        <div class="user-row-name">${user.name}</div>
+                        <div class="user-row-name">${escapeHtml(user.name)}</div>
+                        <div style="font-size: 0.78rem; color: var(--text-muted); display: flex; align-items: center; gap: 6px; margin: 3px 0 6px;">
+                            <span>✉</span>
+                            <span style="font-family: var(--font-mono); font-size: 0.75rem;">${escapeHtml(user.email || 'No email set')}</span>
+                        </div>
                         <div class="user-skills">
-                            ${(user.skills || [user.skill]).map(sk => `<span class="tag">${sk}</span>`).join('')}
+                            ${(user.skills || [user.skill]).map(sk => `<span class="tag">${escapeHtml(sk)}</span>`).join('')}
                         </div>
                     </div>
                 </div>
@@ -222,6 +252,8 @@ async function loadUsers() {
 
 async function addUser() {
     const name = document.getElementById('user-name').value.trim();
+    const emailInput = document.getElementById('user-email');
+    const email = emailInput ? emailInput.value.trim() : '';
     const avatar_url = document.getElementById('user-avatar').value.trim() || null;
     const skillCheckboxes = document.querySelectorAll('input[name="user-skills"]:checked');
     const skills = Array.from(skillCheckboxes).map(cb => cb.value);
@@ -233,11 +265,12 @@ async function addUser() {
         const response = await fetch(`${USER_SERVICE_URL}/users`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, skills, avatar_url })
+            body: JSON.stringify({ name, email: email || null, skills, avatar_url })
         });
 
         if (response.ok) {
             document.getElementById('user-name').value = '';
+            if (emailInput) emailInput.value = '';
             document.getElementById('user-avatar').value = '';
             skillCheckboxes.forEach(cb => cb.checked = false);
             loadUsers();
@@ -307,38 +340,57 @@ async function loadTasks() {
 function renderTaskCard(task) {
     const assignedUser = allUsers.find(u => u.id === task.assigned_user_id);
     const isProjectChild = task.parent_id ? true : false;
+    const deadlineFormatted = formatDeadlineDisplay(task.deadline);
 
     return `
         <div class="task-card ${task.status}" onclick="openTaskModal(${task.id})" style="cursor: pointer;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-                <span class="tag">${task.required_skill}</span>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; gap: 6px;">
+                <div style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center;">
+                    <span class="tag">${escapeHtml(task.required_skill)}</span>
+                    <span class="tag tag-deadline" title="All-day deadline">📅 ${escapeHtml(deadlineFormatted)}</span>
+                </div>
                 <button class="btn btn-ghost" onclick="event.stopPropagation(); deleteTask(${task.id})" style="padding: 2px 8px; font-size: 0.75rem; color: #ef4444; border: none;">&#10006;</button>
             </div>
             <div style="flex: 1;">
-                <h3>${task.title}</h3>
+                <h3>${escapeHtml(task.title)}</h3>
                 <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
-                    ${task.description ? task.description.substring(0, 60) + (task.description.length > 60 ? '...' : '') : 'No description'}
+                    ${task.description ? escapeHtml(task.description.substring(0, 60)) + (task.description.length > 60 ? '...' : '') : 'No description'}
                 </p>
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
                     <span class="status-badge ${task.status}">${task.status}</span>
                     ${isProjectChild ? '<span class="tag blue">Sub-task</span>' : ''}
+                    ${task.assigned_user_id ? '<span class="tag success" style="font-size: 0.7rem;">📅 Synced</span>' : ''}
                 </div>
             </div>
             ${assignedUser ? `
                 <div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);">
                     <div class="user-avatar small" style="background-image: url('${assignedUser.avatar_url || ''}'); background-size: cover;">
-                        ${assignedUser.avatar_url ? '' : assignedUser.name.charAt(0)}
+                        ${assignedUser.avatar_url ? '' : escapeHtml(assignedUser.name).charAt(0)}
                     </div>
-                    <span style="font-size: 0.8rem; color: var(--text-muted);">${assignedUser.name}</span>
+                    <div style="display: flex; flex-direction: column; overflow: hidden;">
+                        <span style="font-size: 0.8rem; font-weight: 600; color: var(--text);">${escapeHtml(assignedUser.name)}</span>
+                        <span style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono);">${escapeHtml(assignedUser.email || task.assigned_user_email || 'No email')}</span>
+                    </div>
                 </div>
             ` : ''}
             ${task.status === 'unassigned' ?
                 `<button class="btn btn-primary" style="margin-top: 14px; width: 100%;"
                  onclick="event.stopPropagation(); autoAssign(${task.id})">Auto-Assign Task</button>` :
                 task.status === 'assigned' ?
-                `<button class="btn btn-success" style="margin-top: 14px; width: 100%;"
-                 onclick="event.stopPropagation(); completeTask(${task.id})">Mark Complete</button>` :
-                `<div class="tag success" style="width: 100%; text-align: center; margin-top: 14px;">Completed</div>`}
+                `<div style="display: flex; flex-direction: column; gap: 6px; margin-top: 14px;">
+                    <button class="btn btn-calendar" style="width: 100%; font-size: 0.78rem;"
+                     onclick="event.stopPropagation(); openInGoogleCalendar(${task.id})">
+                        <span>📅</span>
+                        <span>Open in Member's Calendar</span>
+                    </button>
+                    <button class="btn btn-success" style="width: 100%;"
+                     onclick="event.stopPropagation(); completeTask(${task.id})">Mark Complete</button>
+                 </div>` :
+                `<div style="display: flex; flex-direction: column; gap: 6px; margin-top: 14px;">
+                    <div class="tag success" style="width: 100%; text-align: center;">Completed</div>
+                    <button class="btn btn-ghost" style="width: 100%; font-size: 0.75rem; padding: 4px;"
+                     onclick="event.stopPropagation(); openInGoogleCalendar(${task.id})">📅 View in Google Calendar</button>
+                 </div>`}
         </div>
     `;
 }
@@ -374,9 +426,9 @@ async function loadProjects() {
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
                     <div>
                         <span class="tag">Project</span>
-                        <h3 style="margin-top: 6px;">${project.title}</h3>
+                        <h3 style="margin-top: 6px;">${escapeHtml(project.title)}</h3>
                         <p style="font-size: 0.85rem; color: var(--text-muted);">
-                            ${project.description ? project.description.substring(0, 80) + '...' : 'No description'}
+                            ${project.description ? escapeHtml(project.description.substring(0, 80)) + '...' : 'No description'}
                         </p>
                     </div>
                     <span class="project-progress-value">${project.progress?.progress || 0}%</span>
@@ -412,6 +464,8 @@ async function createTask() {
     const description = document.getElementById('task-description').value.trim();
     const specifications = document.getElementById('task-specifications').value.trim();
     const parent_id = document.getElementById('task-parent').value;
+    const deadlineInput = document.getElementById('task-deadline');
+    const deadline = deadlineInput ? deadlineInput.value : null;
 
     if (!title) return alert("Enter task title");
     if (!required_skill) return alert("Select a required skill");
@@ -425,6 +479,7 @@ async function createTask() {
                 required_skill,
                 description,
                 specifications,
+                deadline,
                 task_type: 'task',
                 parent_id: parent_id || null
             })
@@ -433,9 +488,17 @@ async function createTask() {
         document.getElementById('task-description').value = '';
         document.getElementById('task-specifications').value = '';
         document.getElementById('task-parent').value = '';
+
+        if (deadlineInput) {
+            const def = new Date();
+            def.setDate(def.getDate() + 7);
+            deadlineInput.value = def.toISOString().split('T')[0];
+        }
+
         await loadTasks();
         await populateParentSelector();
         updateStats();
+        showToast("Task created with all-day deadline!");
     } catch (err) {
         alert("Failed to create task in Service B");
     }
@@ -520,6 +583,10 @@ function renderModal() {
                 <input type="text" id="edit-title" value="${escapeHtml(task.title)}">
             </div>
             <div class="modal-field">
+                <label>All-Day Deadline</label>
+                <input type="date" id="edit-deadline" value="${task.deadline ? (task.deadline.includes('T') ? task.deadline.split('T')[0] : task.deadline) : ''}">
+            </div>
+            <div class="modal-field">
                 <label>Description</label>
                 <textarea id="edit-description" rows="3">${escapeHtml(task.description || '')}</textarea>
             </div>
@@ -568,7 +635,7 @@ function renderModal() {
                     <div class="subtask-list">
                         ${task.subtasks.map(st => `
                             <div class="subtask-item ${st.status}">
-                                <span>${st.title}</span>
+                                <span>${escapeHtml(st.title)}</span>
                                 <span class="status-badge ${st.status}">${st.status}</span>
                             </div>
                         `).join('')}
@@ -584,22 +651,62 @@ function renderModal() {
                     <span class="status-badge ${task.status}">${task.status}</span>
                 </div>
                 <div class="modal-meta-item">
+                    <span class="modal-meta-label">All-Day Deadline</span>
+                    <span class="tag tag-deadline">📅 ${escapeHtml(formatDeadlineDisplay(task.deadline))}</span>
+                </div>
+                <div class="modal-meta-item">
                     <span class="modal-meta-label">Required Skill</span>
-                    <span class="tag">${task.required_skill}</span>
+                    <span class="tag">${escapeHtml(task.required_skill)}</span>
                 </div>
                 ${assignedUser ? `
                     <div class="modal-meta-item">
                         <span class="modal-meta-label">Assigned To</span>
-                        <div style="display: flex; align-items: center; gap: 6px;">
-                            <div class="user-avatar small" style="background-image: url('${assignedUser.avatar_url || ''}'); background-size: cover;">
-                                ${assignedUser.avatar_url ? '' : assignedUser.name.charAt(0)}
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <div class="user-avatar small" style="background-image: url('${assignedUser.avatar_url || ''}'); background-size: cover;">
+                                    ${assignedUser.avatar_url ? '' : escapeHtml(assignedUser.name).charAt(0)}
+                                </div>
+                                <span>${escapeHtml(assignedUser.name)}</span>
                             </div>
-                            <span>${assignedUser.name}</span>
+                            <span style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">${escapeHtml(assignedUser.email || task.assigned_user_email || '')}</span>
                         </div>
                     </div>
                 ` : '<div class="modal-meta-item"><span class="modal-meta-label">Assigned To</span><span style="color: var(--text-muted);">Unassigned</span></div>'}
             </div>
-            <div class="modal-section">
+
+            <!-- Google Calendar Box -->
+            <div class="modal-calendar-box">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 1.15rem;">📅</span>
+                        <h4 style="margin: 0; font-size: 0.95rem;">Google Calendar Integration</h4>
+                    </div>
+                    <span class="status-badge ${task.assigned_user_id ? 'assigned' : 'unassigned'}" style="font-size: 0.72rem;">
+                        ${task.assigned_user_id ? '✓ Ready to Sync' : 'Awaiting Assignment'}
+                    </span>
+                </div>
+                <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.45; margin-bottom: 12px;">
+                    ${task.assigned_user_id ?
+                        `Configured as an <strong>all-day deadline</strong> for <strong>${escapeHtml(task.assigned_user_name || assignedUser?.name)}</strong> on <strong>${escapeHtml(formatDeadlineDisplay(task.deadline))}</strong> (Calendar: <code>${escapeHtml(task.assigned_user_email || assignedUser?.email || 'No email')}</code>).` :
+                        `Assign this task to auto-generate an <strong>all-day deadline</strong> event for the member's personal Google Calendar.`}
+                </p>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                    <button class="btn btn-calendar" onclick="openInGoogleCalendar(${task.id})" ${!task.assigned_user_id ? 'disabled' : ''}>
+                        <span>📅</span>
+                        <span>Open in Member's Google Calendar</span>
+                    </button>
+                    <a href="${TASK_SERVICE_URL}/tasks/${task.id}/calendar.ics" download="deadline-${task.id}.ics" class="btn btn-ghost" style="text-decoration: none; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 4px;">
+                        <span>📥</span>
+                        <span>Download .ics</span>
+                    </a>
+                    <button class="btn btn-ghost" onclick="syncCalendarWithFeedback(${task.id})" style="font-size: 0.8rem;">
+                        <span>🔄</span>
+                        <span>Test API Sync</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="modal-section" style="margin-top: 14px;">
                 <h4>Description</h4>
                 <p>${task.description ? escapeHtml(task.description).replace(/\n/g, '<br>') : '<em style="color: var(--text-muted);">No description provided.</em>'}</p>
             </div>
@@ -622,6 +729,7 @@ async function saveTaskEdit() {
 
     const updates = {
         title: document.getElementById('edit-title').value.trim(),
+        deadline: document.getElementById('edit-deadline')?.value || null,
         description: document.getElementById('edit-description').value.trim(),
         specifications: document.getElementById('edit-specifications').value.trim(),
         required_skill: document.getElementById('edit-skill').value,
@@ -639,6 +747,7 @@ async function saveTaskEdit() {
         await loadTasks();
         await openTaskModal(currentModalTask.id);
         updateStats();
+        showToast("Task updated successfully!");
     } catch (err) {
         alert("Failed to update task");
     }
@@ -685,7 +794,7 @@ function escapeHtml(text) {
 async function autoAssign(taskId) {
     const btn = event.target;
     const originalText = btn.textContent;
-    btn.textContent = "Matching Services...";
+    btn.textContent = "Matching & Syncing...";
     btn.disabled = true;
 
     try {
@@ -695,8 +804,24 @@ async function autoAssign(taskId) {
         const result = await response.json();
 
         if (response.ok) {
-            alert(result.message);
             await loadDashboardData();
+            const memberName = result.user?.name || 'Member';
+            const memberEmail = result.calendar?.target_email || result.user?.email || '';
+            const deadline = formatDeadlineDisplay(result.calendar?.deadline || result.task?.deadline);
+
+            showToast(`Assigned to ${memberName}! All-day deadline synced (${memberEmail})`);
+
+            if (result.calendar?.google_calendar_url) {
+                const shouldOpen = confirm(
+                    `Task successfully assigned to ${memberName}!\n\n` +
+                    `📅 All-Day Deadline: ${deadline}\n` +
+                    `✉ Member Calendar: ${memberEmail}\n\n` +
+                    `Would you like to open this event in Google Calendar now?`
+                );
+                if (shouldOpen) {
+                    window.open(result.calendar.google_calendar_url, '_blank');
+                }
+            }
         } else {
             alert(result.message || "No qualified members found");
             btn.textContent = originalText;
@@ -707,6 +832,69 @@ async function autoAssign(taskId) {
         btn.textContent = originalText;
         btn.disabled = false;
     }
+}
+
+// --- GOOGLE CALENDAR ACTIONS ---
+async function openInGoogleCalendar(taskId) {
+    try {
+        showToast("Opening Google Calendar all-day event...");
+        const res = await fetch(`${TASK_SERVICE_URL}/tasks/${taskId}/calendar-event`);
+        if (!res.ok) throw new Error("Failed to get calendar event details");
+        const data = await res.json();
+        if (data.googleCalendarUrl) {
+            window.open(data.googleCalendarUrl, '_blank');
+        } else {
+            alert("No Google Calendar URL generated for this task.");
+        }
+    } catch (err) {
+        console.error("Calendar open error:", err);
+        alert("Unable to open Google Calendar: " + err.message);
+    }
+}
+
+async function syncCalendarWithFeedback(taskId) {
+    try {
+        showToast("Testing Google Calendar API sync...");
+        const res = await fetch(`${TASK_SERVICE_URL}/tasks/${taskId}/sync-calendar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        if (res.ok) {
+            showToast(`Calendar sync confirmed for ${data.task?.assigned_user_name || 'assignee'}!`);
+            await loadTasks();
+            if (currentModalTask && currentModalTask.id === taskId) {
+                await openTaskModal(taskId);
+            }
+        } else {
+            alert(data.error || "Calendar sync failed");
+        }
+    } catch (err) {
+        alert("Calendar Sync Error: " + err.message);
+    }
+}
+
+function showToast(message) {
+    const existing = document.getElementById('assignmate-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.id = 'assignmate-toast';
+    toast.className = 'calendar-toast';
+    toast.innerHTML = `
+        <span style="font-size: 1.15rem;">📅</span>
+        <span>${escapeHtml(message)}</span>
+    `;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+        if (toast && toast.parentNode) {
+            toast.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(10px)';
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, 4500);
 }
 
 // --- DELETE LOGIC ---

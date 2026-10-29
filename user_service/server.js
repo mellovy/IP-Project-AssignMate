@@ -25,19 +25,20 @@ function initializeSampleData() {
         skills.push({ id: nextSkillId++, name: skillName });
     });
 
-    // Add sample users
+    // Add sample users with Google Calendar email addresses
     const sampleUsers = [
-        { name: 'Alice Johnson', avatar_url: 'https://i.pravatar.cc/40?img=1', skills: [1, 2] },
-        { name: 'Bob Smith', avatar_url: 'https://i.pravatar.cc/40?img=2', skills: [2, 3] },
-        { name: 'Carol Davis', avatar_url: 'https://i.pravatar.cc/40?img=3', skills: [3, 4] },
-        { name: 'David Wilson', avatar_url: 'https://i.pravatar.cc/40?img=4', skills: [1, 4] },
-        { name: 'Emma Brown', avatar_url: 'https://i.pravatar.cc/40?img=5', skills: [2, 5] }
+        { name: 'Alice Johnson', email: 'alice.johnson@gmail.com', avatar_url: 'https://i.pravatar.cc/40?img=1', skills: [1, 2] },
+        { name: 'Bob Smith', email: 'bob.smith@gmail.com', avatar_url: 'https://i.pravatar.cc/40?img=2', skills: [2, 3] },
+        { name: 'Carol Davis', email: 'carol.davis@gmail.com', avatar_url: 'https://i.pravatar.cc/40?img=3', skills: [3, 4] },
+        { name: 'David Wilson', email: 'david.wilson@gmail.com', avatar_url: 'https://i.pravatar.cc/40?img=4', skills: [1, 4] },
+        { name: 'Emma Brown', email: 'emma.brown@gmail.com', avatar_url: 'https://i.pravatar.cc/40?img=5', skills: [2, 5] }
     ];
 
     sampleUsers.forEach(userData => {
         const user = {
             id: nextUserId++,
             name: userData.name,
+            email: userData.email,
             avatar_url: userData.avatar_url,
             active_tasks: 0,
             skills: [...userData.skills]
@@ -111,7 +112,10 @@ app.get('/api/users/match/:skill', async (req, res) => {
         skilledUsers.sort((a, b) => a.active_tasks - b.active_tasks);
 
         // Return the least busy user (or empty array if none)
-        const result = skilledUsers.length > 0 ? [skilledUsers[0]] : [];
+        const result = skilledUsers.length > 0 ? [{
+            ...skilledUsers[0],
+            email: skilledUsers[0].email || `${skilledUsers[0].name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@gmail.com`
+        }] : [];
         res.json(result);
     } catch (err) {
         console.error('Error finding users by skill:', err);
@@ -121,7 +125,7 @@ app.get('/api/users/match/:skill', async (req, res) => {
 
 // POST: Register new team member
 app.post('/api/users', async (req, res) => {
-    const { name, skill, skills: skillIds, avatar_url } = req.body;
+    const { name, email, skill, skills: skillIds, avatar_url } = req.body;
     const skillList = skillIds || (skill ? [skill] : []);
 
     if (!name) return res.status(400).json({ error: "Name required" });
@@ -134,9 +138,12 @@ app.post('/api/users', async (req, res) => {
     }
 
     try {
+        const userEmail = email ? email.trim() : `${name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@gmail.com`;
+
         const newUser = {
             id: nextUserId++,
             name,
+            email: userEmail,
             avatar_url: avatar_url || null,
             active_tasks: 0,
             skills: [...skillList]
@@ -149,6 +156,7 @@ app.post('/api/users', async (req, res) => {
         res.json({
             id: newUser.id,
             name: newUser.name,
+            email: newUser.email,
             skill: primarySkill ? primarySkill.name : null,
             skills: newUser.skills.map(id => findSkillById(id).name),
             avatar_url: newUser.avatar_url
@@ -158,7 +166,7 @@ app.post('/api/users', async (req, res) => {
     }
 });
 
-// GET: All team members with their skills
+// GET: All team members with their skills and emails
 app.get('/api/users', async (req, res) => {
     try {
         const usersWithSkills = users.map(user => {
@@ -170,6 +178,7 @@ app.get('/api/users', async (req, res) => {
             return {
                 id: user.id,
                 name: user.name,
+                email: user.email || `${user.name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@gmail.com`,
                 skill: skillNames.length > 0 ? skillNames[0] : null, // Primary skill for backward compatibility
                 avatar_url: user.avatar_url,
                 active_tasks: user.active_tasks,
@@ -182,6 +191,26 @@ app.get('/api/users', async (req, res) => {
         console.error('Error fetching users:', err);
         res.status(500).json({ error: err.message });
     }
+});
+
+// GET: Single user by ID
+app.get('/api/users/:id', async (req, res) => {
+    const user = findUserById(parseInt(req.params.id));
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const skillNames = user.skills.map(id => {
+        const skill = findSkillById(id);
+        return skill ? skill.name : null;
+    }).filter(Boolean);
+
+    res.json({
+        id: user.id,
+        name: user.name,
+        email: user.email || `${user.name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@gmail.com`,
+        avatar_url: user.avatar_url,
+        active_tasks: user.active_tasks,
+        skills: skillNames
+    });
 });
 
 // PUT: Adjust a user's active_tasks count (used by task_service)

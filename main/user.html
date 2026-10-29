@@ -30,8 +30,19 @@
         <!-- Team Members Tab -->
         <section id="user-section" class="tab-section">
             <header>
-                <h1>Team Members &#10022;</h1>
-                <p class="subtitle">Add and manage your team's skill sets.</p>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
+                    <div>
+                        <h1>Team Members &#10022;</h1>
+                        <p class="subtitle">Add and manage team skill sets & Google Calendar emails.</p>
+                    </div>
+                    <div class="calendar-integration-badge" style="display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--line); padding: 8px 12px; border-radius: var(--radius-sm); font-size: 0.8rem; box-shadow: 2px 2px 0 var(--line);">
+                        <span style="font-size: 1.1rem;">📅</span>
+                        <div>
+                            <div style="font-weight: 600; color: var(--text);">Member Calendar Sync</div>
+                            <div style="color: var(--text-muted); font-size: 0.72rem;">Individual calendar per member</div>
+                        </div>
+                    </div>
+                </div>
             </header>
 
             <div class="card panel" id="user-form-panel">
@@ -49,6 +60,10 @@
                                 <div class="form-group">
                                     <label for="user-name">Full name</label>
                                     <input type="text" id="user-name" class="input-title" placeholder="e.g. Jamie Rivera">
+                                </div>
+                                <div class="form-group">
+                                    <label for="user-email">Google Account Email <span class="label-optional">(for Calendar sync)</span></label>
+                                    <input type="email" id="user-email" placeholder="e.g. jamie.rivera@gmail.com">
                                 </div>
                                 <div class="form-group">
                                     <label for="user-avatar">Avatar URL <span class="label-optional">(optional)</span></label>

@@ -30,8 +30,19 @@
         <!-- Tasks Tab -->
         <section id="task-section" class="tab-section">
             <header>
-                <h1>Workflow Overview &#10022;</h1>
-                <p class="subtitle">Create tasks and assign them to your team.</p>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
+                    <div>
+                        <h1>Workflow Overview &#10022;</h1>
+                        <p class="subtitle">Create tasks and auto-assign them with Google Calendar deadline sync.</p>
+                    </div>
+                    <div class="calendar-integration-badge" style="display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--line); padding: 8px 12px; border-radius: var(--radius-sm); font-size: 0.8rem; box-shadow: 2px 2px 0 var(--line);">
+                        <span style="font-size: 1.1rem;">📅</span>
+                        <div>
+                            <div style="font-weight: 600; color: var(--text);">Google Calendar</div>
+                            <div style="color: var(--text-muted); font-size: 0.72rem;">All-day member deadlines active</div>
+                        </div>
+                    </div>
+                </div>
             </header>
 
             <div class="stats-row">
@@ -97,6 +108,10 @@
                                     <select id="task-skill-req">
                                         <option value="">Select skill...</option>
                                     </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="task-deadline">Deadline <span class="label-optional">(All-day)</span></label>
+                                    <input type="date" id="task-deadline">
                                 </div>
                             </div>
                         </div>

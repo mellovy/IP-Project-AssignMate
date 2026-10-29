@@ -974,3 +974,84 @@ header h1 {
     .stat-card.green  { border-top-color: var(--teal); }
     .stat-card.orange { border-top-color: var(--amber); }
 }
+
+/* ==========================================================
+   Google Calendar Integration Styles
+   ========================================================== */
+.calendar-integration-badge {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    box-shadow: 2px 2px 0 var(--ink);
+    transition: transform var(--transition-fast);
+}
+
+.calendar-integration-badge:hover {
+    transform: translateY(-1px);
+}
+
+.btn-calendar {
+    background: #1a73e8;
+    color: #ffffff;
+    border: 1px solid #1557b0;
+    box-shadow: 2px 2px 0 var(--ink);
+    font-weight: 600;
+    font-size: 0.82rem;
+    padding: 8px 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    text-decoration: none;
+    transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.btn-calendar:hover {
+    background: #1557b0;
+    box-shadow: 3px 3px 0 var(--ink);
+    color: #ffffff;
+}
+
+.btn-calendar:active {
+    box-shadow: 1px 1px 0 var(--ink);
+}
+
+.tag-deadline {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-color: #bfdbfe;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.02em;
+}
+
+.modal-calendar-box {
+    background: #f8fafc;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    margin-top: 16px;
+}
+
+.calendar-toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--ink);
+    color: #fff;
+    padding: 12px 18px;
+    border-radius: var(--radius-md);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.25);
+    font-size: 0.88rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 9999;
+    animation: slideUp 0.25s ease-out;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
