@@ -573,6 +573,28 @@ app.post('/api/tasks/:id/send-reminder', requireAuth, async (req, res, next) => 
     }
 });
 
+// POST: Resend the assignment email (admin or the assignee)
+app.post('/api/tasks/:id/send-email', requireAuth, async (req, res, next) => {
+    try {
+        const task = await getTaskById(req.params.id);
+        if (!task) return res.status(404).json({ error: 'Task not found' });
+        if (!canAccessTask(req, task)) {
+            return res.status(403).json({ error: 'You can only send email for your own tasks' });
+        }
+        if (!task.assigned_user_id) {
+            return res.status(400).json({ error: 'Assign this task before sending email' });
+        }
+
+        const email = await sendAssignmentEmail(task);
+        if (!email.sent) {
+            return res.status(502).json({ error: email.reason || 'Email was not sent', email });
+        }
+        res.json({ sent: true, email });
+    } catch (err) {
+        next(err);
+    }
+});
+
 // GET: Single task with details
 app.get('/api/tasks/:id', requireAuth, async (req, res, next) => {
     try {

@@ -261,6 +261,9 @@ async function loadUsers() {
                             <div class="user-skills">
                                 ${(user.skills || [user.skill]).map(sk => `<span class="tag">${escapeHtml(sk)}</span>`).join('')}
                             </div>
+                            ${user.google_email && user.email && user.email.toLowerCase() !== user.google_email.toLowerCase()
+                                ? `<div class="tag" style="font-size: 0.72rem; color: var(--amber); margin-top: 4px;">⚠ Emails go to ${escapeHtml(user.email)} (not their Google account)</div>`
+                                : ''}
                         </div>
                     </div>
                     <div class="user-actions">
@@ -421,6 +424,8 @@ function renderTaskCard(task) {
                     </button>
                     <button class="btn btn-ghost" style="width: 100%; font-size: 0.75rem;"
                      onclick="event.stopPropagation(); syncCalendarWithFeedback(${task.id})">Sync to Google Calendar</button>
+                    <button class="btn btn-ghost" style="width: 100%; font-size: 0.75rem;"
+                     onclick="event.stopPropagation(); resendEmail(${task.id}, this)">Resend email</button>
                     <button class="btn btn-success" style="width: 100%;"
                      onclick="event.stopPropagation(); completeTask(${task.id})">Mark Complete</button>
                  </div>` :
@@ -847,20 +852,29 @@ async function autoAssign(taskId) {
         if (response.ok) {
             await loadDashboardData();
             const memberName = result.user?.name || 'Member';
-            const memberEmail = result.calendar?.target_email || result.user?.email || '';
-            const deadline = formatDeadlineDisplay(result.calendar?.deadline || result.task?.deadline);
+            const memberEmail = result.user?.email || result.task?.assigned_user_email || '';
+            const emailSent = Boolean(result.email?.sent);
+            const calendarSynced = Boolean(result.calendar?.synced);
 
-            showToast(`Assigned to ${memberName}! All-day deadline synced (${memberEmail})`);
+            const parts = [`Assigned to ${memberName}`];
+            parts.push(emailSent
+                ? `email sent to ${result.email.to || memberEmail}`
+                : `email NOT sent: ${result.email?.reason || 'unknown reason'}`);
+            parts.push(calendarSynced
+                ? 'calendar synced'
+                : `calendar NOT synced: ${result.calendar?.reason || 'unknown reason'}`);
 
-            if (result.calendar?.google_calendar_url) {
+            showToast(parts.join(' · '), (emailSent && calendarSynced) ? '✉' : '⚠');
+
+            if (result.calendar?.htmlLink) {
                 const shouldOpen = confirm(
                     `Task successfully assigned to ${memberName}!\n\n` +
-                    `📅 All-Day Deadline: ${deadline}\n` +
+                    `📅 All-Day Deadline: ${formatDeadlineDisplay(result.task?.deadline)}\n` +
                     `✉ Member Calendar: ${memberEmail}\n\n` +
                     `Would you like to open this event in Google Calendar now?`
                 );
                 if (shouldOpen) {
-                    window.open(result.calendar.google_calendar_url, '_blank');
+                    window.open(result.calendar.htmlLink, '_blank');
                 }
             }
         } else {
@@ -874,6 +888,24 @@ async function autoAssign(taskId) {
         btn.disabled = false;
     }
 }
+
+async function resendEmail(taskId, btn) {
+    if (btn) btn.disabled = true;
+    try {
+        const res = await apiFetch(`${TASK_SERVICE_URL}/tasks/${taskId}/send-email`, { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            alert(data.error || 'Email was not sent');
+            return;
+        }
+        showToast(`Email sent to ${data.email?.to || 'the assignee'}`, '✉');
+    } catch (err) {
+        alert('Email error: ' + err.message);
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+window.resendEmail = resendEmail;
 
 // --- GOOGLE CALENDAR ACTIONS ---
 async function openInGoogleCalendar(taskId) {

@@ -74,3 +74,26 @@ There is no password step: login is by email, and sessions expire after `SESSION
 4. The task card shows **Calendar synced** when the Calendar API event was created; otherwise **Not synced** with a **Sync to Google Calendar** button.
 
 If a member has not connected Google, assignment still succeeds but email/calendar sync reports the reason in the API response and the dashboard continues to work.
+
+## Email Troubleshooting
+
+Auto-assign now reports the real outcome in a toast, for example:
+
+`Assigned to Jamie Rivera · email NOT sent: User has not connected Google · calendar NOT synced: ...`
+
+| Message | Fix |
+| --- | --- |
+| `INTERNAL_API_KEY is not configured` | Add `INTERNAL_API_KEY` to the server `.env` and restart. |
+| `User has not connected Google` | That member must click **Connect Google** on Team Members. |
+| `insufficient authentication scopes` / `403` from Gmail | Reconnect Google so the new Gmail + Calendar scopes are granted. |
+| `fetch failed` / `user_service returned 502` | The user service is down or `INTERNAL_API_KEY` differs between services. |
+
+Assigned task cards have a **Resend email** button so a failed assignment email can be retried without reassigning.
+
+Check the server log for the underlying error:
+
+```bash
+cd /data/users/s22100684/assignmate.dcism.org && grep -iE "email|not sent|gmail|internal" app.log | tail -n 30
+```
+
+Reminder emails (separate from the assignment email) are sent by the background checker every `REMINDER_CHECK_INTERVAL_MINUTES` (default 60) and once at startup, when an assigned task's deadline is 0..`REMINDER_DAYS_BEFORE` days away (default 2). One reminder per task; the flag resets if the deadline, assignee, or status changes.
