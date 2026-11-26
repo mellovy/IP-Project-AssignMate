@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.static(path.join(__dirname, '../main')));
 
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, '../main/task.html'));
+    res.sendFile(path.join(__dirname, '../main/login.html'));
 });
 
 // Forwarding helper for microservices (preserves method, headers, query, and streaming body)

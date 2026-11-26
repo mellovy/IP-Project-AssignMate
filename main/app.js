@@ -11,6 +11,8 @@ let isEditMode = false;
 // Leave the rest of the file exactly the same...
 
 document.addEventListener('DOMContentLoaded', () => {
+    if (!requireLogin()) return;
+    applyRoleUI();
     handleGoogleCallback();
     loadDashboardData();
 });
@@ -67,7 +69,7 @@ async function loadDashboardData() {
     await Promise.all([loadSkills(), loadUsers(), loadTasks()]);
     updateStats();
     populateSkillDropdowns();
-    await populateParentSelector();
+    if (isAdmin()) await populateParentSelector();
 
     const deadlineInput = document.getElementById('task-deadline');
     if (deadlineInput && !deadlineInput.value) {
@@ -98,7 +100,7 @@ function formatDeadlineDisplay(dateStr) {
 
 async function loadSkills() {
     try {
-        const response = await fetch(`${USER_SERVICE_URL}/skills`);
+        const response = await apiFetch(`${USER_SERVICE_URL}/skills`);
         if (!response.ok) {
             console.error(`Skills API error: ${response.status}`);
             allSkills = [];
@@ -134,7 +136,7 @@ async function populateParentSelector() {
     const parentSelect = document.getElementById('task-parent');
     if (!parentSelect) return;
     try {
-        const response = await fetch(`${TASK_SERVICE_URL}/projects`);
+        const response = await apiFetch(`${TASK_SERVICE_URL}/projects`);
         if (!response.ok) {
             console.error(`Projects API error: ${response.status}`);
             parentSelect.innerHTML = '<option value="">-- No Parent --</option>';
@@ -201,7 +203,7 @@ function updateStats() {
 // --- USER SERVICE LOGIC ---
 async function loadUsers() {
     try {
-        const response = await fetch(`${USER_SERVICE_URL}/users`);
+        const response = await apiFetch(`${USER_SERVICE_URL}/users`);
         if (!response.ok) {
             console.error(`Users API error: ${response.status}`);
             allUsers = [];
@@ -210,6 +212,7 @@ async function loadUsers() {
         const data = await response.json();
         allUsers = Array.isArray(data) ? data : [];
         const container = document.getElementById('user-container');
+        if (!container) return;
 
         if (allUsers.length === 0) {
             container.innerHTML = `
@@ -236,12 +239,12 @@ async function loadUsers() {
                             <div class="gmail-status-label">Gmail connected</div>
                             <div class="gmail-status-email">${escapeHtml(connectedEmail)}</div>
                         </div>
-                        <a class="gmail-reconnect" href="${USER_SERVICE_URL}/users/${user.id}/google/connect">Reconnect</a>
+                        <button class="gmail-reconnect" onclick="connectGoogle(${user.id})">Reconnect</button>
                    </div>`
-                : `<a class="btn btn-ghost gmail-connect-btn" href="${USER_SERVICE_URL}/users/${user.id}/google/connect" title="Authorize Gmail sending for this member">
+                : `<button class="btn btn-ghost gmail-connect-btn" onclick="connectGoogle(${user.id})" title="Authorize Gmail sending for this member">
                         <span class="gmail-mark">✉</span>
                         Connect Google
-                   </a>`;
+                   </button>`;
 
             return `
                 <div class="user-row">
@@ -262,7 +265,7 @@ async function loadUsers() {
                     </div>
                     <div class="user-actions">
                         ${googleAction}
-                        <button class="btn btn-ghost" onclick="deleteUser(${user.id})" style="color: #ef4444; border-color: #fca5a5;">Delete</button>
+                        ${isAdmin() ? `<button class="btn btn-ghost" onclick="deleteUser(${user.id})" style="color: #ef4444; border-color: #fca5a5;">Delete</button>` : ''}
                     </div>
                 </div>
             `;
@@ -281,23 +284,27 @@ async function addUser() {
     const skills = Array.from(skillCheckboxes).map(cb => cb.value);
 
     if (!name) return alert("Please enter a name");
+    if (!email) return alert("Please enter their real email");
     if (skills.length === 0) return alert("Please select at least one skill");
 
     try {
-        const response = await fetch(`${USER_SERVICE_URL}/users`, {
+        const response = await apiFetch(`${USER_SERVICE_URL}/users`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, email: email || null, skills, avatar_url })
+            body: JSON.stringify({ name, email, skills, avatar_url })
         });
+        const data = await response.json().catch(() => ({}));
 
-        if (response.ok) {
-            document.getElementById('user-name').value = '';
-            if (emailInput) emailInput.value = '';
-            document.getElementById('user-avatar').value = '';
-            skillCheckboxes.forEach(cb => cb.checked = false);
-            loadUsers();
-            updateStats();
+        if (!response.ok) {
+            return alert(data.error || "Failed to add user");
         }
+
+        document.getElementById('user-name').value = '';
+        if (emailInput) emailInput.value = '';
+        document.getElementById('user-avatar').value = '';
+        skillCheckboxes.forEach(cb => cb.checked = false);
+        loadUsers();
+        updateStats();
     } catch (err) {
         alert("Failed to add user to Service A");
     }
@@ -308,7 +315,7 @@ async function addNewSkill() {
     if (!name) return alert("Please enter a skill name");
 
     try {
-        const response = await fetch(`${USER_SERVICE_URL}/skills`, {
+        const response = await apiFetch(`${USER_SERVICE_URL}/skills`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name })
@@ -327,7 +334,7 @@ async function addNewSkill() {
 // --- TASK SERVICE LOGIC ---
 async function loadTasks() {
     try {
-        const response = await fetch(`${TASK_SERVICE_URL}/tasks`);
+        const response = await apiFetch(`${TASK_SERVICE_URL}/tasks`);
         if (!response.ok) {
             console.error(`Tasks API error: ${response.status}`);
             allTasks = [];
@@ -336,6 +343,7 @@ async function loadTasks() {
         const data = await response.json();
         allTasks = Array.isArray(data) ? data : [];
         const container = document.getElementById('task-container');
+        if (!container) return;
         const displayTasks = allTasks.filter(t => t.task_type !== 'project');
 
         if (displayTasks.length === 0) {
@@ -371,7 +379,7 @@ function renderTaskCard(task) {
                     <span class="tag">${escapeHtml(task.required_skill)}</span>
                     <span class="tag tag-deadline" title="All-day deadline">📅 ${escapeHtml(deadlineFormatted)}</span>
                 </div>
-                <button class="btn btn-ghost" onclick="event.stopPropagation(); deleteTask(${task.id})" style="padding: 2px 8px; font-size: 0.75rem; color: #ef4444; border: none;">&#10006;</button>
+                ${isAdmin() ? `<button class="btn btn-ghost" onclick="event.stopPropagation(); deleteTask(${task.id})" style="padding: 2px 8px; font-size: 0.75rem; color: #ef4444; border: none;">&#10006;</button>` : ''}
             </div>
             <div style="flex: 1;">
                 <h3>${escapeHtml(task.title)}</h3>
@@ -381,7 +389,11 @@ function renderTaskCard(task) {
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
                     <span class="status-badge ${task.status}">${task.status}</span>
                     ${isProjectChild ? '<span class="tag blue">Sub-task</span>' : ''}
-                    ${task.assigned_user_id ? '<span class="tag success" style="font-size: 0.7rem;">📅 Synced</span>' : ''}
+                    ${task.assigned_user_id
+                        ? (task.calendar_synced
+                            ? '<span class="tag success" style="font-size: 0.7rem;">📅 Calendar synced</span>'
+                            : '<span class="tag" style="font-size: 0.7rem; color: var(--amber);">📅 Not synced</span>')
+                        : ''}
                 </div>
             </div>
             ${assignedUser ? `
@@ -396,15 +408,19 @@ function renderTaskCard(task) {
                 </div>
             ` : ''}
             ${task.status === 'unassigned' ?
-                `<button class="btn btn-primary" style="margin-top: 14px; width: 100%;"
-                 onclick="event.stopPropagation(); autoAssign(${task.id})">Auto-Assign Task</button>` :
+                (isAdmin()
+                    ? `<button class="btn btn-primary" style="margin-top: 14px; width: 100%;"
+                       onclick="event.stopPropagation(); autoAssign(${task.id})">Auto-Assign Task</button>`
+                    : '<div class="tag" style="margin-top: 14px;">Unassigned</div>') :
                 task.status === 'assigned' ?
                 `<div style="display: flex; flex-direction: column; gap: 6px; margin-top: 14px;">
                     <button class="btn btn-calendar" style="width: 100%; font-size: 0.78rem;"
                      onclick="event.stopPropagation(); openInGoogleCalendar(${task.id})">
                         <span>📅</span>
-                        <span>Open in Member's Calendar</span>
+                        <span>Open in Google Calendar</span>
                     </button>
+                    <button class="btn btn-ghost" style="width: 100%; font-size: 0.75rem;"
+                     onclick="event.stopPropagation(); syncCalendarWithFeedback(${task.id})">Sync to Google Calendar</button>
                     <button class="btn btn-success" style="width: 100%;"
                      onclick="event.stopPropagation(); completeTask(${task.id})">Mark Complete</button>
                  </div>` :
@@ -419,7 +435,7 @@ function renderTaskCard(task) {
 
 async function loadProjects() {
     try {
-        const response = await fetch(`${TASK_SERVICE_URL}/projects`);
+        const response = await apiFetch(`${TASK_SERVICE_URL}/projects`);
         if (!response.ok) {
             console.error(`Projects API error: ${response.status}`);
             const container = document.getElementById('project-container');
@@ -493,7 +509,7 @@ async function createTask() {
     if (!required_skill) return alert("Select a required skill");
 
     try {
-        await fetch(`${TASK_SERVICE_URL}/tasks`, {
+        await apiFetch(`${TASK_SERVICE_URL}/tasks`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -534,7 +550,7 @@ async function createProject() {
     if (!title) return alert("Enter project title");
 
     try {
-        await fetch(`${TASK_SERVICE_URL}/tasks`, {
+        await apiFetch(`${TASK_SERVICE_URL}/tasks`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -560,7 +576,7 @@ async function createProject() {
 // --- TASK MODAL ---
 async function openTaskModal(taskId) {
     try {
-        const response = await fetch(`${TASK_SERVICE_URL}/tasks/${taskId}`);
+        const response = await apiFetch(`${TASK_SERVICE_URL}/tasks/${taskId}`);
         const task = await response.json();
         currentModalTask = task;
         isEditMode = false;
@@ -589,6 +605,7 @@ function renderModal() {
     const body = document.getElementById('modal-body');
     const editBtn = document.getElementById('modal-edit-btn');
     const cancelBtn = document.getElementById('modal-cancel-btn');
+    editBtn.style.display = isAdmin() ? 'inline-block' : 'none';
 
     // Clean up dynamic complete button
     const existingCompleteBtn = document.getElementById('modal-complete-btn');
@@ -703,27 +720,29 @@ function renderModal() {
                         <span style="font-size: 1.15rem;">📅</span>
                         <h4 style="margin: 0; font-size: 0.95rem;">Google Calendar Integration</h4>
                     </div>
-                    <span class="status-badge ${task.assigned_user_id ? 'assigned' : 'unassigned'}" style="font-size: 0.72rem;">
-                        ${task.assigned_user_id ? '✓ Ready to Sync' : 'Awaiting Assignment'}
+                    <span class="status-badge ${task.calendar_synced ? 'completed' : task.assigned_user_id ? 'assigned' : 'unassigned'}" style="font-size: 0.72rem;">
+                        ${task.calendar_synced ? '✓ Synced to Google Calendar' : task.assigned_user_id ? '• Not synced yet' : 'Awaiting Assignment'}
                     </span>
                 </div>
                 <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.45; margin-bottom: 12px;">
                     ${task.assigned_user_id ?
-                        `Configured as an <strong>all-day deadline</strong> for <strong>${escapeHtml(task.assigned_user_name || assignedUser?.name)}</strong> on <strong>${escapeHtml(formatDeadlineDisplay(task.deadline))}</strong> (Calendar: <code>${escapeHtml(task.assigned_user_email || assignedUser?.email || 'No email')}</code>).` :
-                        `Assign this task to auto-generate an <strong>all-day deadline</strong> event for the member's personal Google Calendar.`}
+                        (task.calendar_synced
+                            ? `This <strong>all-day deadline</strong> is on <strong>${escapeHtml(task.assigned_user_name || assignedUser?.name)}</strong>'s Google Calendar for <strong>${escapeHtml(formatDeadlineDisplay(task.deadline))}</strong>.`
+                            : `This deadline is not on the member's calendar yet. Click <strong>Sync to Google Calendar</strong> to create the all-day event.`) :
+                        `Assign this task to create an <strong>all-day deadline</strong> event in the member's personal Google Calendar.`}
                 </p>
                 <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
                     <button class="btn btn-calendar" onclick="openInGoogleCalendar(${task.id})" ${!task.assigned_user_id ? 'disabled' : ''}>
                         <span>📅</span>
-                        <span>Open in Member's Google Calendar</span>
+                        <span>Open in Google Calendar</span>
                     </button>
                     <a href="${TASK_SERVICE_URL}/tasks/${task.id}/calendar.ics" download="deadline-${task.id}.ics" class="btn btn-ghost" style="text-decoration: none; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 4px;">
                         <span>📥</span>
                         <span>Download .ics</span>
                     </a>
-                    <button class="btn btn-ghost" onclick="syncCalendarWithFeedback(${task.id})" style="font-size: 0.8rem;">
+                    <button class="btn btn-ghost" onclick="syncCalendarWithFeedback(${task.id})" style="font-size: 0.8rem;" ${!task.assigned_user_id ? 'disabled' : ''}>
                         <span>🔄</span>
-                        <span>Test API Sync</span>
+                        <span>Sync to Google Calendar</span>
                     </button>
                 </div>
             </div>
@@ -759,7 +778,7 @@ async function saveTaskEdit() {
     };
 
     try {
-        await fetch(`${TASK_SERVICE_URL}/tasks/${currentModalTask.id}`, {
+        await apiFetch(`${TASK_SERVICE_URL}/tasks/${currentModalTask.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updates)
@@ -777,7 +796,7 @@ async function saveTaskEdit() {
 
 async function completeTask(taskId) {
     try {
-        const response = await fetch(`${TASK_SERVICE_URL}/tasks/${taskId}`, {
+        const response = await apiFetch(`${TASK_SERVICE_URL}/tasks/${taskId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: 'completed' })
@@ -820,7 +839,7 @@ async function autoAssign(taskId) {
     btn.disabled = true;
 
     try {
-        const response = await fetch(`${TASK_SERVICE_URL}/tasks/${taskId}/auto-assign`, {
+        const response = await apiFetch(`${TASK_SERVICE_URL}/tasks/${taskId}/auto-assign`, {
             method: 'PUT'
         });
         const result = await response.json();
@@ -860,7 +879,7 @@ async function autoAssign(taskId) {
 async function openInGoogleCalendar(taskId) {
     try {
         showToast("Opening Google Calendar all-day event...");
-        const res = await fetch(`${TASK_SERVICE_URL}/tasks/${taskId}/calendar-event`);
+        const res = await apiFetch(`${TASK_SERVICE_URL}/tasks/${taskId}/calendar-event`);
         if (!res.ok) throw new Error("Failed to get calendar event details");
         const data = await res.json();
         if (data.googleCalendarUrl) {
@@ -877,7 +896,7 @@ async function openInGoogleCalendar(taskId) {
 async function syncCalendarWithFeedback(taskId) {
     try {
         showToast("Testing Google Calendar API sync...");
-        const res = await fetch(`${TASK_SERVICE_URL}/tasks/${taskId}/sync-calendar`, {
+        const res = await apiFetch(`${TASK_SERVICE_URL}/tasks/${taskId}/sync-calendar`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
@@ -939,7 +958,7 @@ function showToast(message, icon = '📅') {
 async function deleteUser(id) {
     if (!confirm("Are you sure you want to remove this team member?")) return;
     try {
-        await fetch(`${USER_SERVICE_URL}/users/${id}`, { method: 'DELETE' });
+        await apiFetch(`${USER_SERVICE_URL}/users/${id}`, { method: 'DELETE' });
         loadDashboardData();
     } catch (err) {
         alert("Failed to delete user");
@@ -949,7 +968,7 @@ async function deleteUser(id) {
 async function deleteTask(id) {
     if (!confirm("Are you sure you want to delete this task?")) return;
     try {
-        await fetch(`${TASK_SERVICE_URL}/tasks/${id}`, { method: 'DELETE' });
+        await apiFetch(`${TASK_SERVICE_URL}/tasks/${id}`, { method: 'DELETE' });
         loadDashboardData();
         if (document.getElementById('project-section').style.display !== 'none') {
             loadProjects();

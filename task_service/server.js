@@ -5,16 +5,19 @@ require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const { sendTaskEmail } = require('./email');
 const { daysUntilDeadline, isReminderDue } = require('./reminder-utils');
+const { pool, testConnection } = require('../database/db');
+const { requireAuth, requireAdmin } = require('../database/auth');
 
 const app = express();
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-internal-key', 'x-session-token']
 }));
 app.use(express.json());
 
 const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://localhost:3001';
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 const REMINDER_DAYS_BEFORE = Number.isFinite(Number(process.env.REMINDER_DAYS_BEFORE))
     ? Math.max(0, Number(process.env.REMINDER_DAYS_BEFORE))
     : 2;
@@ -22,19 +25,12 @@ const REMINDER_CHECK_INTERVAL_MINUTES = Number.isFinite(Number(process.env.REMIN
     ? Math.max(1, Number(process.env.REMINDER_CHECK_INTERVAL_MINUTES))
     : 60;
 
-// In-memory storage
-let tasks = [];
-let nextTaskId = 1;
-
-// Helper: Calculate default deadline (N days ahead as YYYY-MM-DD)
 function getDefaultDeadline(daysAhead = 7) {
     const d = new Date();
     d.setDate(d.getDate() + daysAhead);
     return d.toISOString().split('T')[0];
 }
 
-// Helper: Format date for Google Calendar all-day event (YYYYMMDD/YYYYMMDD)
-// In Google Calendar, all-day events use YYYYMMDD with end date exclusive (next day)
 function formatGoogleCalendarAllDayDates(deadlineStr) {
     const cleanDate = (deadlineStr && deadlineStr.includes('T')) ? deadlineStr.split('T')[0] : (deadlineStr || getDefaultDeadline(7));
     const parts = cleanDate.split('-');
@@ -55,7 +51,6 @@ function formatGoogleCalendarAllDayDates(deadlineStr) {
     return `${toCompact(startDate)}/${toCompact(endDate)}`;
 }
 
-// Helper: Generate Google Calendar Web Intent URL for member's personal calendar
 function generateGoogleCalendarUrl(task) {
     const deadline = task.deadline || getDefaultDeadline(7);
     const dates = formatGoogleCalendarAllDayDates(deadline);
@@ -87,7 +82,6 @@ function generateGoogleCalendarUrl(task) {
     return url;
 }
 
-// Helper: Generate iCalendar (.ics) content for all-day deadline
 function generateIcsContent(task) {
     const deadline = task.deadline || getDefaultDeadline(7);
     const dateRange = formatGoogleCalendarAllDayDates(deadline).split('/');
@@ -119,6 +113,104 @@ function generateIcsContent(task) {
     ].filter(Boolean).join('\r\n');
 }
 
+function normalizeTask(row) {
+    return {
+        ...row,
+        id: Number(row.id),
+        parent_id: row.parent_id ? Number(row.parent_id) : null,
+        assigned_user_id: row.assigned_user_id ? Number(row.assigned_user_id) : null,
+        calendar_synced: Boolean(row.calendar_synced),
+        reminder_sent: Boolean(row.reminder_sent),
+        progress_percent: Number(row.progress_percent) || 0
+    };
+}
+
+async function getTaskById(id) {
+    const [rows] = await pool.execute('SELECT * FROM tasks WHERE id = ?', [id]);
+    return rows[0] ? normalizeTask(rows[0]) : null;
+}
+
+async function getAllTasks() {
+    const [rows] = await pool.query('SELECT * FROM tasks ORDER BY created_at DESC, id DESC');
+    return rows.map(normalizeTask);
+}
+
+async function updateProjectProgress(projectId) {
+    if (!projectId) return null;
+
+    const [rows] = await pool.execute(
+        `SELECT COUNT(*) AS total,
+                COALESCE(SUM(status = 'completed'), 0) AS completed
+         FROM tasks WHERE parent_id = ?`,
+        [projectId]
+    );
+    const total = Number(rows[0].total) || 0;
+    const completed = Number(rows[0].completed) || 0;
+    const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    await pool.execute('UPDATE tasks SET progress_percent = ? WHERE id = ?', [progress, projectId]);
+    return { total, completed, progress };
+}
+
+async function recalcActiveTasks(userIds) {
+    const ids = [...new Set(userIds.filter(Boolean).map(Number))];
+    if (ids.length === 0) return;
+
+    const placeholders = ids.map(() => '?').join(',');
+    await pool.execute(
+        `UPDATE users u
+         SET active_tasks = (
+             SELECT COUNT(*) FROM tasks t
+             WHERE t.assigned_user_id = u.id AND t.status <> 'completed'
+         )
+         WHERE u.id IN (${placeholders})`,
+        ids
+    );
+}
+
+async function syncCalendarForTask(task) {
+    if (!task.assigned_user_id) {
+        return { synced: false, reason: 'Assignee is missing' };
+    }
+    if (!INTERNAL_API_KEY) {
+        return { synced: false, reason: 'INTERNAL_API_KEY is not configured' };
+    }
+
+    try {
+        const response = await fetch(`${USER_SERVICE_URL}/api/users/${task.assigned_user_id}/calendar/sync`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-internal-key': INTERNAL_API_KEY
+            },
+            body: JSON.stringify({ task })
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            return { synced: false, reason: data.error || `user_service returned ${response.status}` };
+        }
+
+        return { synced: true, eventId: data.eventId, htmlLink: data.htmlLink };
+    } catch (err) {
+        return { synced: false, reason: err.message };
+    }
+}
+
+async function saveCalendarResult(task, calendar) {
+    if (calendar.synced) {
+        await pool.execute(
+            'UPDATE tasks SET calendar_synced = 1, calendar_event_id = ? WHERE id = ?',
+            [calendar.eventId || null, task.id]
+        );
+    } else {
+        await pool.execute(
+            'UPDATE tasks SET calendar_synced = 0, calendar_event_id = NULL WHERE id = ?',
+            [task.id]
+        );
+    }
+}
+
 async function sendAssignmentEmail(task) {
     const result = await sendTaskEmail(task, {
         kind: 'assignment',
@@ -146,6 +238,10 @@ async function sendReminderEmail(task) {
     return result;
 }
 
+function canAccessTask(req, task) {
+    return req.user.role === 'admin' || task.assigned_user_id === req.user.id;
+}
+
 let reminderCheckRunning = false;
 
 async function checkDueReminders() {
@@ -154,16 +250,23 @@ async function checkDueReminders() {
 
     try {
         const now = new Date();
-        const dueTasks = tasks.filter(task => isReminderDue(task, now, REMINDER_DAYS_BEFORE));
+        const [rows] = await pool.query(
+            `SELECT * FROM tasks
+             WHERE status = 'assigned'
+               AND assigned_user_id IS NOT NULL
+               AND reminder_sent = 0
+               AND deadline IS NOT NULL`
+        );
+        const dueTasks = rows.map(normalizeTask).filter(task => isReminderDue(task, now, REMINDER_DAYS_BEFORE));
 
         for (const task of dueTasks) {
-            task.reminder_sent = true;
+            await pool.execute('UPDATE tasks SET reminder_sent = 1 WHERE id = ?', [task.id]);
             const result = await sendReminderEmail(task);
 
             if (result.sent) {
                 console.log(`Reminder email sent for task ${task.id} to ${result.to || task.assigned_user_email}`);
             } else {
-                task.reminder_sent = false;
+                await pool.execute('UPDATE tasks SET reminder_sent = 0 WHERE id = ?', [task.id]);
             }
         }
     } finally {
@@ -171,442 +274,369 @@ async function checkDueReminders() {
     }
 }
 
-// Initialize sample tasks with deadlines ready for class demo
-function initializeSampleTasks() {
-    if (tasks.length > 0) return;
-    const now = new Date();
-    const d1 = new Date(now.getTime() + 2 * 86400000).toISOString().split('T')[0];
-    const d2 = new Date(now.getTime() + 4 * 86400000).toISOString().split('T')[0];
-    const d3 = new Date(now.getTime() + 7 * 86400000).toISOString().split('T')[0];
-
-    tasks.push({
-        id: nextTaskId++,
-        title: "Setup API Gateway Authentication",
-        description: "Configure reverse proxy middleware and authenticate microservices requests.",
-        specifications: "1. Route user_service and task_service\n2. Add rate limiting\n3. Set headers",
-        required_skill: "Development",
-        deadline: d1,
-        parent_id: null,
-        task_type: "task",
-        status: "unassigned",
-        assigned_user_id: null,
-        assigned_user_name: null,
-        assigned_user_email: null,
-        calendar_synced: false,
-        calendar_event_id: null,
-        progress_percent: 0,
-        created_at: new Date(now.getTime() - 86400000).toISOString()
-    });
-
-    tasks.push({
-        id: nextTaskId++,
-        title: "Create High-Fidelity Dashboard Mockups",
-        description: "Draft Figma mockups for task assignment board and project timeline.",
-        specifications: "Include responsive tablet and desktop layouts in dark/light contrast.",
-        required_skill: "Design",
-        deadline: d2,
-        parent_id: null,
-        task_type: "task",
-        status: "unassigned",
-        assigned_user_id: null,
-        assigned_user_name: null,
-        assigned_user_email: null,
-        calendar_synced: false,
-        calendar_event_id: null,
-        progress_percent: 0,
-        created_at: new Date(now.getTime() - 43200000).toISOString()
-    });
-
-    tasks.push({
-        id: nextTaskId++,
-        title: "Automated Integration Test Suite",
-        description: "Write end-to-end integration tests between User Service and Task Service.",
-        specifications: "Test auto-assign load balancing and active task counters.",
-        required_skill: "Testing",
-        deadline: d3,
-        parent_id: null,
-        task_type: "task",
-        status: "unassigned",
-        assigned_user_id: null,
-        assigned_user_name: null,
-        assigned_user_email: null,
-        calendar_synced: false,
-        calendar_event_id: null,
-        progress_percent: 0,
-        created_at: new Date().toISOString()
-    });
-}
-
-initializeSampleTasks();
-
-function findTaskById(id) {
-    return tasks.find(t => t.id === Number(id));
-}
-
-function calculateProjectProgress(projectId) {
-    const subtasks = tasks.filter(t => t.parent_id === Number(projectId));
-    const total = subtasks.length;
-    const completed = subtasks.filter(t => t.status === 'completed').length;
-    const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
-
-    const project = findTaskById(projectId);
-    if (project) project.progress_percent = progress;
-
-    return { total, completed, progress };
-}
-
-async function adjustActiveTasks(userId, delta) {
-    if (!userId) return;
+// GET: All tasks (members only see their own)
+app.get('/api/tasks', requireAuth, async (req, res, next) => {
     try {
-        await fetch(`${USER_SERVICE_URL}/api/users/${userId}/active-tasks`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ delta })
+        let tasks = await getAllTasks();
+        if (req.user.role !== 'admin') {
+            tasks = tasks.filter(task => task.assigned_user_id === req.user.id);
+        }
+
+        tasks.forEach(task => {
+            if (!task.deadline) task.deadline = getDefaultDeadline(7);
+            if (task.task_type === 'project') {
+                const subtasks = tasks.filter(t => t.parent_id === task.id);
+                task.subtask_count = subtasks.length;
+                task.subtask_completed = subtasks.filter(t => t.status === 'completed').length;
+                task.progress_percent = task.subtask_count > 0
+                    ? Math.round((task.subtask_completed / task.subtask_count) * 100)
+                    : 0;
+            }
         });
-    } catch (err) {
-        console.error('Failed to adjust active_tasks for user', userId, err);
-    }
-}
 
-// PUT: Auto-Assign Task
-app.put('/api/tasks/:id/auto-assign', async (req, res) => {
-    const taskId = req.params.id;
-    const task = findTaskById(taskId);
-    if (!task) return res.status(404).json({ error: "Task not found" });
+        res.json(tasks);
+    } catch (err) {
+        next(err);
+    }
+});
+
+// GET: All projects with progress (admin)
+app.get('/api/projects', requireAuth, requireAdmin, async (req, res, next) => {
+    try {
+        const allTasks = await getAllTasks();
+        const projects = allTasks.filter(t => t.task_type === 'project');
+
+        projects.forEach(project => {
+            const subtasks = allTasks.filter(t => t.parent_id === project.id);
+            const total = subtasks.length;
+            const completed = subtasks.filter(t => t.status === 'completed').length;
+            project.progress = {
+                total,
+                completed,
+                progress: total > 0 ? Math.round((completed / total) * 100) : 0
+            };
+        });
+
+        res.json(projects);
+    } catch (err) {
+        next(err);
+    }
+});
+
+// POST: Create task or project (admin)
+app.post('/api/tasks', requireAuth, requireAdmin, async (req, res, next) => {
+    const {
+        title, required_skill, description, specifications,
+        parent_id, task_type, deadline
+    } = req.body || {};
+
+    if (!title) return res.status(400).json({ error: 'Title required' });
 
     try {
-        const response = await fetch(`${USER_SERVICE_URL}/api/users/match/${encodeURIComponent(task.required_skill)}`);
+        const [result] = await pool.execute(
+            `INSERT INTO tasks
+                (title, description, specifications, required_skill, deadline,
+                 parent_id, task_type, status, progress_percent)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'unassigned', 0)`,
+            [
+                String(title).trim(),
+                description || null,
+                specifications || null,
+                required_skill || null,
+                deadline || getDefaultDeadline(7),
+                parent_id ? Number(parent_id) : null,
+                task_type === 'project' ? 'project' : 'task'
+            ]
+        );
+
+        if (parent_id) await updateProjectProgress(Number(parent_id));
+
+        const task = await getTaskById(result.insertId);
+        res.json(task);
+    } catch (err) {
+        next(err);
+    }
+});
+
+// PUT: Auto-assign a task (admin)
+app.put('/api/tasks/:id/auto-assign', requireAuth, requireAdmin, async (req, res, next) => {
+    try {
+        const task = await getTaskById(req.params.id);
+        if (!task) return res.status(404).json({ error: 'Task not found' });
+        if (!task.required_skill) return res.status(400).json({ error: 'Task has no required skill' });
+        if (!INTERNAL_API_KEY) {
+            return res.status(503).json({ error: 'INTERNAL_API_KEY is not configured' });
+        }
+
+        const response = await fetch(
+            `${USER_SERVICE_URL}/api/users/match/${encodeURIComponent(task.required_skill)}`,
+            { headers: { 'x-internal-key': INTERNAL_API_KEY } }
+        );
         if (!response.ok) throw new Error(`user_service returned ${response.status}`);
+
         const matches = await response.json();
         const bestUser = matches[0];
+        if (!bestUser) return res.status(404).json({ message: 'No qualified members found' });
 
-        if (!bestUser) return res.status(404).json({ message: "No qualified members found" });
+        const deadline = task.deadline || getDefaultDeadline(7);
+        await pool.execute(
+            `UPDATE tasks
+             SET assigned_user_id = ?, assigned_user_name = ?, assigned_user_email = ?,
+                 status = 'assigned', deadline = ?, reminder_sent = 0
+             WHERE id = ?`,
+            [bestUser.id, bestUser.name, bestUser.email, deadline, task.id]
+        );
 
-        const prevStatus = task.status;
+        const updatedTask = await getTaskById(task.id);
+        await recalcActiveTasks([task.assigned_user_id, bestUser.id]);
+        if (updatedTask.parent_id) await updateProjectProgress(updatedTask.parent_id);
 
-        task.assigned_user_id = bestUser.id;
-        task.assigned_user_name = bestUser.name;
-        task.assigned_user_email = bestUser.email || `${bestUser.name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@gmail.com`;
-        task.status = 'assigned';
-        task.calendar_synced = true;
-        task.reminder_sent = false;
-
-        if (!task.deadline) {
-            task.deadline = getDefaultDeadline(7);
-        }
-
-        if (prevStatus !== 'assigned') {
-            await adjustActiveTasks(bestUser.id, 1);
-        }
-
-        if (task.parent_id) {
-            calculateProjectProgress(task.parent_id);
-        }
-
-        const calendarUrl = generateGoogleCalendarUrl(task);
-        const email = await sendAssignmentEmail(task);
+        const email = await sendAssignmentEmail(updatedTask);
+        const calendar = await syncCalendarForTask(updatedTask);
+        await saveCalendarResult(updatedTask, calendar);
+        updatedTask.calendar_synced = calendar.synced;
+        if (calendar.synced) updatedTask.calendar_event_id = calendar.eventId;
 
         res.json({
             message: `Successfully assigned to ${bestUser.name}`,
             user: bestUser,
-            task,
+            task: updatedTask,
             email,
-            calendar: {
-                synced: true,
-                target_email: task.assigned_user_email,
-                event_type: 'All-day deadline',
-                deadline: task.deadline,
-                google_calendar_url: calendarUrl
-            }
+            calendar
         });
     } catch (err) {
-        console.error('Auto-assign error:', err);
-        res.status(500).json({ error: "Integration Layer Error: " + err.message });
+        next(err);
     }
 });
 
-// POST: Create Task
-app.post('/api/tasks', (req, res) => {
-    const { title, required_skill, description, specifications, parent_id, task_type, deadline } = req.body;
-
-    if (!title) return res.status(400).json({ error: "Title required" });
-
-    const newTask = {
-        id: nextTaskId++,
-        title,
-        description: description || null,
-        specifications: specifications || null,
-        required_skill,
-        deadline: deadline || getDefaultDeadline(7),
-        parent_id: parent_id ? Number(parent_id) : null,
-        task_type: task_type || 'task',
-        status: 'unassigned',
-        assigned_user_id: null,
-        assigned_user_name: null,
-        assigned_user_email: null,
-        calendar_synced: false,
-        calendar_event_id: null,
-        reminder_sent: false,
-        progress_percent: 0,
-        created_at: new Date().toISOString()
-    };
-
-    tasks.push(newTask);
-
-    if (newTask.parent_id) {
-        calculateProjectProgress(newTask.parent_id);
-    }
-
-    res.json(newTask);
-});
-
-// PUT: Update Task
-app.put('/api/tasks/:id', async (req, res) => {
-    const task = findTaskById(req.params.id);
-    if (!task) return res.status(404).json({ error: "Task not found" });
-
-    const { title, description, specifications, required_skill, status, parent_id, task_type, deadline, calendar_synced, assigned_user_email } = req.body;
-    const prevStatus = task.status;
-    const assignedUserId = task.assigned_user_id;
-
-    if (title !== undefined) task.title = title;
-    if (description !== undefined) task.description = description;
-    if (specifications !== undefined) task.specifications = specifications;
-    if (required_skill !== undefined) task.required_skill = required_skill;
-    if (deadline !== undefined && deadline !== task.deadline) {
-        task.deadline = deadline;
-        task.reminder_sent = false;
-    }
-    if (calendar_synced !== undefined) task.calendar_synced = Boolean(calendar_synced);
-    if (assigned_user_email !== undefined && assigned_user_email !== task.assigned_user_email) {
-        task.assigned_user_email = assigned_user_email;
-        task.reminder_sent = false;
-    }
-    if (parent_id !== undefined) task.parent_id = parent_id ? Number(parent_id) : null;
-    if (task_type !== undefined) task.task_type = task_type;
-
-    if (status !== undefined && status !== prevStatus) {
-        task.status = status;
-
-        if (status === 'assigned') {
-            task.reminder_sent = false;
+// PUT: Update task
+app.put('/api/tasks/:id', requireAuth, async (req, res, next) => {
+    try {
+        const task = await getTaskById(req.params.id);
+        if (!task) return res.status(404).json({ error: 'Task not found' });
+        if (!canAccessTask(req, task)) {
+            return res.status(403).json({ error: 'You can only update your own tasks' });
         }
 
-        if (assignedUserId) {
-            if (status === 'completed' && prevStatus !== 'completed') {
-                await adjustActiveTasks(assignedUserId, -1);
-            } else if (prevStatus === 'completed' && status !== 'completed') {
-                await adjustActiveTasks(assignedUserId, 1);
-            } else if (status === 'assigned' && prevStatus === 'unassigned') {
-                await adjustActiveTasks(assignedUserId, 1);
-            } else if (prevStatus === 'assigned' && status === 'unassigned') {
-                await adjustActiveTasks(assignedUserId, -1);
-            }
+        const isAdmin = req.user.role === 'admin';
+        const body = req.body || {};
+        const fields = {};
+        const allowed = isAdmin
+            ? ['title', 'description', 'specifications', 'required_skill', 'status', 'parent_id', 'task_type', 'deadline', 'calendar_synced', 'assigned_user_email']
+            : ['status'];
+
+        for (const key of allowed) {
+            if (body[key] !== undefined) fields[key] = body[key];
         }
 
-        if (task.parent_id) {
-            calculateProjectProgress(task.parent_id);
+        if (fields.status !== undefined && !['unassigned', 'assigned', 'completed'].includes(fields.status)) {
+            return res.status(400).json({ error: 'Invalid status' });
         }
+        if (!isAdmin && fields.status !== undefined && !['assigned', 'completed'].includes(fields.status)) {
+            return res.status(403).json({ error: 'Members can only mark their own tasks assigned or completed' });
+        }
+        if (fields.task_type !== undefined && !['task', 'project'].includes(fields.task_type)) {
+            return res.status(400).json({ error: 'Invalid task type' });
+        }
+
+        const previousStatus = task.status;
+        const previousAssignee = task.assigned_user_id;
+
+        if (fields.parent_id !== undefined) fields.parent_id = fields.parent_id ? Number(fields.parent_id) : null;
+        if (fields.calendar_synced !== undefined) fields.calendar_synced = fields.calendar_synced ? 1 : 0;
+        if (fields.deadline !== undefined && fields.deadline !== task.deadline) fields.reminder_sent = 0;
+        if (fields.assigned_user_email !== undefined && fields.assigned_user_email !== task.assigned_user_email) fields.reminder_sent = 0;
+        if (fields.status === 'assigned' && previousStatus !== 'assigned') fields.reminder_sent = 0;
+
+        const keys = Object.keys(fields);
+        if (keys.length > 0) {
+            const setClause = keys.map(key => `${key} = ?`).join(', ');
+            await pool.execute(
+                `UPDATE tasks SET ${setClause} WHERE id = ?`,
+                [...keys.map(key => fields[key]), task.id]
+            );
+        }
+
+        const updatedTask = await getTaskById(task.id);
+        await recalcActiveTasks([previousAssignee, updatedTask.assigned_user_id]);
+        if (updatedTask.parent_id) await updateProjectProgress(updatedTask.parent_id);
+
+        res.json(updatedTask);
+    } catch (err) {
+        next(err);
     }
-
-    res.json(task);
 });
 
 // GET: Calendar details and Google Calendar intent URL for a task
-app.get('/api/tasks/:id/calendar-event', (req, res) => {
-    const task = findTaskById(req.params.id);
-    if (!task) return res.status(404).json({ error: "Task not found" });
+app.get('/api/tasks/:id/calendar-event', requireAuth, async (req, res, next) => {
+    try {
+        const task = await getTaskById(req.params.id);
+        if (!task) return res.status(404).json({ error: 'Task not found' });
+        if (!canAccessTask(req, task)) {
+            return res.status(403).json({ error: 'You can only view your own tasks' });
+        }
 
-    const deadline = task.deadline || getDefaultDeadline(7);
-    const googleCalendarUrl = generateGoogleCalendarUrl(task);
-
-    res.json({
-        taskId: task.id,
-        title: `Deadline: ${task.title}`,
-        deadline: deadline,
-        eventType: 'All-day deadline',
-        assignedUserName: task.assigned_user_name,
-        assignedUserEmail: task.assigned_user_email,
-        calendarSynced: Boolean(task.calendar_synced),
-        googleCalendarUrl: googleCalendarUrl,
-        icsUrl: `/task_service/api/tasks/${task.id}/calendar.ics`
-    });
+        const deadline = task.deadline || getDefaultDeadline(7);
+        res.json({
+            taskId: task.id,
+            title: `Deadline: ${task.title}`,
+            deadline,
+            eventType: 'All-day deadline',
+            assignedUserName: task.assigned_user_name,
+            assignedUserEmail: task.assigned_user_email,
+            calendarSynced: Boolean(task.calendar_synced),
+            calendarEventId: task.calendar_event_id,
+            googleCalendarUrl: generateGoogleCalendarUrl(task),
+            icsUrl: `/task_service/api/tasks/${task.id}/calendar.ics`
+        });
+    } catch (err) {
+        next(err);
+    }
 });
 
 // GET: Download iCalendar (.ics) for task all-day deadline
-app.get('/api/tasks/:id/calendar.ics', (req, res) => {
-    const task = findTaskById(req.params.id);
-    if (!task) return res.status(404).json({ error: "Task not found" });
+app.get('/api/tasks/:id/calendar.ics', async (req, res, next) => {
+    try {
+        const task = await getTaskById(req.params.id);
+        if (!task) return res.status(404).json({ error: 'Task not found' });
 
-    const icsContent = generateIcsContent(task);
-    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="task-${task.id}-deadline.ics"`);
-    res.send(icsContent);
+        res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="task-${task.id}-deadline.ics"`);
+        res.send(generateIcsContent(task));
+    } catch (err) {
+        next(err);
+    }
 });
 
-// POST: Trigger calendar sync for task
-app.post('/api/tasks/:id/sync-calendar', async (req, res) => {
-    const task = findTaskById(req.params.id);
-    if (!task) return res.status(404).json({ error: "Task not found" });
-
-    if (!task.deadline) {
-        task.deadline = getDefaultDeadline(7);
-    }
-    task.calendar_synced = true;
-
-    // Optional Google Calendar API sync if token provided in env or header
-    const accessToken = req.headers.authorization?.replace('Bearer ', '') || process.env.GOOGLE_CALENDAR_ACCESS_TOKEN;
-    let apiStatus = 'ready_for_calendar';
-
-    if (accessToken) {
-        try {
-            const nextDay = new Date(new Date(task.deadline).getTime() + 86400000).toISOString().split('T')[0];
-            const gResponse = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    summary: `Deadline: ${task.title}`,
-                    description: `Assigned via AssignMate to ${task.assigned_user_name || 'member'}\n\n${task.description || ''}`,
-                    start: { date: task.deadline },
-                    end: { date: nextDay },
-                    attendees: task.assigned_user_email ? [{ email: task.assigned_user_email }] : []
-                })
-            });
-            if (gResponse.ok) {
-                const gData = await gResponse.json();
-                task.calendar_event_id = gData.id;
-                apiStatus = 'api_synced';
-            }
-        } catch (apiErr) {
-            console.warn('Google Calendar API sync note:', apiErr.message);
+// POST: Sync a real all-day event to the assignee's Google Calendar
+app.post('/api/tasks/:id/sync-calendar', requireAuth, async (req, res, next) => {
+    try {
+        const task = await getTaskById(req.params.id);
+        if (!task) return res.status(404).json({ error: 'Task not found' });
+        if (!canAccessTask(req, task)) {
+            return res.status(403).json({ error: 'You can only sync your own tasks' });
         }
+        if (!task.assigned_user_id) {
+            return res.status(400).json({ error: 'Assign this task before syncing the calendar' });
+        }
+
+        const calendar = await syncCalendarForTask(task);
+        await saveCalendarResult(task, calendar);
+
+        if (!calendar.synced) {
+            return res.status(502).json({
+                error: calendar.reason,
+                calendar,
+                task: await getTaskById(task.id)
+            });
+        }
+
+        res.json({
+            success: true,
+            calendar,
+            task: await getTaskById(task.id),
+            googleCalendarUrl: generateGoogleCalendarUrl(task)
+        });
+    } catch (err) {
+        next(err);
     }
-
-    const calendarUrl = generateGoogleCalendarUrl(task);
-
-    res.json({
-        success: true,
-        apiStatus,
-        message: `Task deadline prepared for ${task.assigned_user_name || 'assignee'} (${task.assigned_user_email || 'No email'})`,
-        task,
-        googleCalendarUrl: calendarUrl
-    });
 });
 
 // POST: Send a deadline reminder email now
-app.post('/api/tasks/:id/send-reminder', async (req, res) => {
-    const task = findTaskById(req.params.id);
-    if (!task) return res.status(404).json({ error: "Task not found" });
-    if (!task.assigned_user_email) {
-        return res.status(400).json({ error: "Assign this task before sending a reminder" });
-    }
-    if (task.status === 'completed') {
-        return res.status(400).json({ error: "Completed tasks do not need reminders" });
-    }
+app.post('/api/tasks/:id/send-reminder', requireAuth, async (req, res, next) => {
+    try {
+        const task = await getTaskById(req.params.id);
+        if (!task) return res.status(404).json({ error: 'Task not found' });
+        if (!canAccessTask(req, task)) {
+            return res.status(403).json({ error: 'You can only remind yourself' });
+        }
+        if (!task.assigned_user_email) {
+            return res.status(400).json({ error: 'Assign this task before sending a reminder' });
+        }
+        if (task.status === 'completed') {
+            return res.status(400).json({ error: 'Completed tasks do not need reminders' });
+        }
 
-    const result = await sendReminderEmail(task);
-    if (!result.sent) {
-        return res.status(503).json({ error: result.reason });
-    }
+        const result = await sendReminderEmail(task);
+        if (!result.sent) {
+            return res.status(503).json({ error: result.reason });
+        }
 
-    task.reminder_sent = true;
-    res.json({
-        success: true,
-        message: `Reminder sent to ${result.to || task.assigned_user_email}`,
-        email: result
-    });
+        await pool.execute('UPDATE tasks SET reminder_sent = 1 WHERE id = ?', [task.id]);
+        res.json({
+            success: true,
+            message: `Reminder sent to ${result.to || task.assigned_user_email}`,
+            email: result
+        });
+    } catch (err) {
+        next(err);
+    }
 });
 
 // GET: Single task with details
-app.get('/api/tasks/:id', (req, res) => {
-    const task = findTaskById(req.params.id);
-    if (!task) return res.status(404).json({ error: "Task not found" });
-
-    if (!task.deadline) {
-        task.deadline = getDefaultDeadline(7);
-    }
-
-    if (task.task_type === 'project') {
-        const subtasks = tasks.filter(t => t.parent_id === task.id);
-        task.subtasks = subtasks;
-        task.progress = calculateProjectProgress(task.id);
-    }
-
-    res.json(task);
-});
-
-// GET: All tasks
-app.get('/api/tasks', (req, res) => {
-    const result = [...tasks].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-    result.forEach(task => {
-        if (!task.deadline) {
-            task.deadline = getDefaultDeadline(7);
+app.get('/api/tasks/:id', requireAuth, async (req, res, next) => {
+    try {
+        const task = await getTaskById(req.params.id);
+        if (!task) return res.status(404).json({ error: 'Task not found' });
+        if (!canAccessTask(req, task)) {
+            return res.status(403).json({ error: 'You can only view your own tasks' });
         }
+
+        if (!task.deadline) task.deadline = getDefaultDeadline(7);
+
         if (task.task_type === 'project') {
-            const subtasks = tasks.filter(t => t.parent_id === task.id);
-            task.subtask_count = subtasks.length;
-            task.subtask_completed = subtasks.filter(t => t.status === 'completed').length;
-            task.progress_percent = task.subtask_count > 0
-                ? Math.round((task.subtask_completed / task.subtask_count) * 100)
-                : 0;
+            const [rows] = await pool.execute(
+                'SELECT * FROM tasks WHERE parent_id = ? ORDER BY id',
+                [task.id]
+            );
+            task.subtasks = rows.map(normalizeTask);
+            task.progress = await updateProjectProgress(task.id);
         }
-    });
 
-    res.json(result);
+        res.json(task);
+    } catch (err) {
+        next(err);
+    }
 });
 
-// GET: All projects with progress
-app.get('/api/projects', (req, res) => {
-    const projects = tasks.filter(t => t.task_type === 'project');
-    projects.forEach(project => {
-        project.progress = calculateProjectProgress(project.id);
-    });
-    res.json(projects);
+// DELETE: Delete task (admin)
+app.delete('/api/tasks/:id', requireAuth, requireAdmin, async (req, res, next) => {
+    try {
+        const task = await getTaskById(req.params.id);
+        if (!task) return res.status(404).json({ error: 'Task not found' });
+
+        const [subtasks] = await pool.execute('SELECT * FROM tasks WHERE parent_id = ?', [task.id]);
+        const affected = [
+            task.assigned_user_id,
+            ...subtasks.map(st => st.assigned_user_id)
+        ];
+
+        await pool.execute('DELETE FROM tasks WHERE id = ? OR parent_id = ?', [task.id, task.id]);
+        await recalcActiveTasks(affected);
+        if (task.parent_id) await updateProjectProgress(task.parent_id);
+
+        res.json({ message: 'Task deleted' });
+    } catch (err) {
+        next(err);
+    }
 });
 
-// DELETE: Delete task
-app.delete('/api/tasks/:id', async (req, res) => {
-    const task = findTaskById(req.params.id);
-    if (!task) return res.status(404).json({ error: "Task not found" });
-
-    const isProject = task.task_type === 'project';
-    const subtasks = isProject ? tasks.filter(t => t.parent_id === task.id) : [];
-    const parentId = task.parent_id;
-
-    // Collect users to decrement (the task itself + subtasks if it's a project)
-    const affected = new Map(); // userId -> count of active (non-completed) tasks being removed
-    if (task.assigned_user_id && task.status !== 'completed') {
-        affected.set(task.assigned_user_id, (affected.get(task.assigned_user_id) || 0) + 1);
-    }
-    for (const st of subtasks) {
-        if (st.assigned_user_id && st.status !== 'completed') {
-            affected.set(st.assigned_user_id, (affected.get(st.assigned_user_id) || 0) + 1);
-        }
-    }
-
-    // Remove the task and its subtasks
-    tasks = tasks.filter(t => t.id !== task.id && t.parent_id !== task.id);
-
-    if (parentId) {
-        calculateProjectProgress(parentId);
-    }
-
-    for (const [userId, count] of affected) {
-        await adjustActiveTasks(userId, -count);
-    }
-
-    res.json({ message: "Task deleted" });
+app.use((err, req, res, next) => {
+    console.error('Task service error:', err);
+    res.status(500).json({ error: err.message });
 });
 
 setInterval(() => {
     checkDueReminders().catch(err => console.error('Reminder check failed:', err));
 }, REMINDER_CHECK_INTERVAL_MINUTES * 60 * 1000);
 
-checkDueReminders().catch(err => console.error('Initial reminder check failed:', err));
-console.log(`Email reminders active via per-user Google OAuth (${REMINDER_DAYS_BEFORE} day(s) before deadline)`);
-
-app.listen(3002, () => console.log('Task Service running on port 3002'));
+testConnection()
+    .then(() => {
+        checkDueReminders().catch(err => console.error('Initial reminder check failed:', err));
+        console.log(`Email reminders active via per-user Google OAuth (${REMINDER_DAYS_BEFORE} day(s) before deadline)`);
+        app.listen(3002, () => console.log('Task Service running on port 3002'));
+    })
+    .catch(err => {
+        console.error('Task Service database connection failed:', err.message);
+        process.exit(1);
+    });

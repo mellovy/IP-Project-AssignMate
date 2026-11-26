@@ -22,6 +22,8 @@
         <div class="user-profile">
             <div style="font-size: 0.75rem; color: #a78bfa; margin-bottom: 4px;">Signed in as</div>
             <div id="user-display" style="font-weight: 600; color: #fff; font-size: 0.9rem;">Admin User</div>
+            <div id="user-role-display" class="profile-role">Admin</div>
+            <button class="profile-logout" onclick="logout()">Sign out</button>
         </div>
     </nav>
 
@@ -70,7 +72,7 @@
                 </div>
             </div>
 
-            <div class="card panel" id="task-form-panel">
+            <div class="card panel" id="task-form-panel" data-admin-only>
                 <button class="panel-toggle" onclick="togglePanel(this)">
                     <span class="panel-toggle-left">
                         <span class="panel-toggle-icon">&#10022;</span>
@@ -161,6 +163,7 @@
 
     </main>
 
+    <script src="auth.js"></script>
     <script src="app.js"></script>
 
 </body>

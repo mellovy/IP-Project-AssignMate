@@ -1,6 +1,6 @@
 # AssignMate
 
-AssignMate is a web-based dashboard for managing team tasks and projects. It allows administrators to register team members, define skills, create tasks/projects, auto-assign tasks, and track progress.
+AssignMate is a web-based dashboard for managing team tasks and projects. It allows administrators to register team members, define skills, create tasks/projects, auto-assign tasks, and track progress. Members sign in with their real email, see only their own tasks, and connect their own Google account.
 
 ## Group Members
 - Cabahug, Lorenze Antoinette
@@ -10,66 +10,67 @@ AssignMate is a web-based dashboard for managing team tasks and projects. It all
 
 ## Features
 
-- User registration and skill management with personal Google accounts
-- Task and project creation with all-day deadline tracking
+- MySQL-backed users, skills, tasks, projects, and login sessions
+- Email login with `admin` and `member` roles
+- Admin: full task/project/team management
+- Member: own tasks, mark own tasks complete, connect own Gmail and Calendar
 - Automatic task assignment based on skills and workload
 - **Google Calendar Integration**:
-  - Automatically syncs tasks as **all-day deadline events** directly into each member's personal Google Calendar.
-  - 1-click **Open in Member's Google Calendar** action pre-fills title, specifications, and member email.
-  - Standard RFC 5545 `.ics` file download per task.
+  - Creates real **all-day deadline events** with the Google Calendar API.
+  - Shows **Calendar synced / Not synced** on task cards in the overview.
+  - 1-click **Open in Google Calendar** link and `.ics` download per task.
 - **Email Reminders with per-member Gmail OAuth**:
   - Each member connects their own Google account from Team Members.
-  - Assignment and deadline emails are sent from that member's Gmail account.
-  - Uses the Gmail API with the narrow `https://www.googleapis.com/auth/gmail.send` scope.
+  - Assignment and deadline emails are sent from that member's Gmail account to their real email.
+  - Uses the Gmail API with `https://www.googleapis.com/auth/gmail.send`.
   - Sends one deadline reminder when a task is within the configured reminder window.
 - Real-time progress and velocity tracking
 
 ## Technology Stack
 
 - Frontend: HTML, CSS, JavaScript
-- Backend: Node.js, Express (Microservices Architecture with API Gateway)
-- Calendar: Google Calendar Web Intent API & iCalendar (.ics)
+- Backend: Node.js, Express (microservices + API gateway)
+- Database: MySQL / MariaDB via `mysql2`
+- Calendar: Google Calendar API + iCalendar (.ics)
 - Email: Google OAuth 2.0 + Gmail API, with Nodemailer used only to compose the MIME message
 
 ## Setup
 
 1. Install dependencies: `npm install`
-2. Create a Google Cloud OAuth client:
+2. Create the database tables:
+   - Create/select the database in your hosting panel.
+   - Run `database/schema.sql` in phpMyAdmin.
+   - Add your real admin account by running the commented `INSERT INTO users` statement at the bottom of that file.
+3. Create a Google Cloud OAuth client:
    - Create or select a project in Google Cloud Console.
-   - Enable the **Gmail API**.
-   - Configure the OAuth consent screen. If the app is in Testing mode, add every member's Gmail address as a test user.
+   - Enable the **Gmail API** and **Google Calendar API**.
+   - Configure the OAuth consent screen. If the app is in Testing mode, add every member's real email as a test user.
    - Create an OAuth client of type **Web application**.
    - Add this authorized redirect URI exactly:
      `https://assignmate.dcism.org/user_service/api/auth/google/callback`
    - For local development, also add:
      `http://localhost:20201/user_service/api/auth/google/callback`
    - Copy the client ID and client secret.
-3. Configure environment variables:
-   - Copy `.env.example` to `.env`.
-   - Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
-   - Set `INTERNAL_API_KEY` to a long random string. Both services use it for the internal send-email request.
-   - Optional: set `REMINDER_DAYS_BEFORE` (default `2`) and `REMINDER_CHECK_INTERVAL_MINUTES` (default `60`).
-4. Start all services together:
+4. Configure environment variables in `.env`:
+   - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+   - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+   - `GOOGLE_REDIRECT_URI`
+   - `INTERNAL_API_KEY` (long random string)
+   - Optional: `SESSION_DAYS` (default `7`), `REMINDER_DAYS_BEFORE` (default `2`), `REMINDER_CHECK_INTERVAL_MINUTES` (default `60`)
+5. Start all services:
    - `npm start` (or `node start.js`)
-   - *Alternatively, run individually in separate terminals:*
-     - `node gateway/server.js` (Port 20339 by default; set `PORT=20201` locally)
-     - `node user_service/server.js` (Port 3001)
-     - `node task_service/server.js` (Port 3002)
-5. Visit https://assignmate.dcism.org and open **Team Members**.
-   - Add each member with their real Gmail address.
-   - Click **Connect Google** next to the member and approve Gmail sending access.
-   - The sample users use fake `@gmail.com` addresses; they cannot receive real email.
+   - Individually: `node gateway/server.js`, `node user_service/server.js`, `node task_service/server.js`
+6. Visit https://assignmate.dcism.org and sign in with your **real email**.
+   - Admin: add members with their real email and skills.
+   - Members: sign in, open **Team Members**, and click **Connect Google**. Approve Gmail + Calendar access. Then sync assignments from Overview.
 
-OAuth refresh tokens are kept in memory for this demo. A service restart requires members to reconnect Google. For production, store tokens in an encrypted database.
+There is no password step: login is by email, and sessions expire after `SESSION_DAYS`. If an email is not in MySQL, it cannot sign in.
 
-## Email Reminder Testing
+## Email and Calendar Testing
 
-1. Connect a member with a real Gmail account.
-2. Assign a task to that member.
-3. Trigger the reminder immediately:
+1. Sign in as a member and connect Google (Gmail + Calendar scopes).
+2. As admin, create/assign a task to that member.
+3. The assignment email is sent from the member's Gmail to their real email.
+4. The task card shows **Calendar synced** when the Calendar API event was created; otherwise **Not synced** with a **Sync to Google Calendar** button.
 
-```bash
-curl -X POST https://assignmate.dcism.org/task_service/api/tasks/1/send-reminder
-```
-
-The email is sent from the member's connected Gmail account to the same address. If the member has not connected Google, the task service returns an error and the rest of the dashboard continues to work.
+If a member has not connected Google, assignment still succeeds but email/calendar sync reports the reason in the API response and the dashboard continues to work.

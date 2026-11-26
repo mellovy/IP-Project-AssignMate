@@ -4,7 +4,12 @@ const nodemailer = require('nodemailer');
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'https://assignmate.dcism.org/user_service/api/auth/google/callback';
-const GOOGLE_SCOPE = 'openid email https://www.googleapis.com/auth/gmail.send';
+const GOOGLE_SCOPE = [
+    'openid',
+    'email',
+    'https://www.googleapis.com/auth/gmail.send',
+    'https://www.googleapis.com/auth/calendar.events'
+].join(' ');
 const STATE_TTL_MS = 10 * 60 * 1000;
 
 const oauthStates = new Map();
@@ -104,6 +109,39 @@ async function sendGmail({ refreshToken, from, to, subject, text, html }) {
     return { messageId: data.id, to };
 }
 
+async function syncCalendarEvent({ refreshToken, attendeeEmail, task, eventId }) {
+    const accessToken = await getAccessToken(refreshToken);
+    const deadline = String(task.deadline || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const end = new Date(`${deadline}T00:00:00Z`);
+    end.setUTCDate(end.getUTCDate() + 1);
+
+    const baseUrl = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+    const url = eventId ? `${baseUrl}/${encodeURIComponent(eventId)}` : baseUrl;
+
+    const response = await fetch(url, {
+        method: eventId ? 'PATCH' : 'POST',
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            summary: `Deadline: ${task.title}`,
+            description: [
+                `AssignMate task: ${task.title}`,
+                `Required skill: ${task.required_skill || 'N/A'}`,
+                task.description || ''
+            ].filter(Boolean).join('\n\n'),
+            start: { date: deadline },
+            end: { date: end.toISOString().slice(0, 10) },
+            attendees: attendeeEmail ? [{ email: attendeeEmail }] : []
+        })
+    });
+
+    const data = await readJson(response);
+    if (!response.ok) throw googleError(data, 'Google Calendar sync failed');
+    return data;
+}
+
 function pruneStates(now = Date.now()) {
     for (const [state, entry] of oauthStates) {
         if (entry.expiresAt <= now) oauthStates.delete(state);
@@ -131,6 +169,7 @@ module.exports = {
     exchangeCode,
     getUserEmail,
     sendGmail,
+    syncCalendarEvent,
     createState,
     consumeState
 };

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AssignMate | Sign In</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="login-page">
+
+    <main class="login-shell">
+        <div class="login-brand">
+            <span class="logo-dot"></span>
+            <span>AssignMate</span>
+        </div>
+
+        <section class="login-card">
+            <div class="login-heading">
+                <span class="tag">Dispatch board</span>
+                <h1>Sign in</h1>
+                <p>Use the real email your admin added. Members see only their own tasks and can connect their own Gmail.</p>
+            </div>
+
+            <form id="login-form" autocomplete="on">
+                <div class="form-group">
+                    <label for="login-email">Email</label>
+                    <input type="email" id="login-email" name="email" placeholder="you@example.com" required autofocus>
+                </div>
+                <div id="login-error" class="login-error" role="alert"></div>
+                <button type="submit" class="btn btn-primary login-submit">Continue</button>
+            </form>
+
+            <p class="login-hint">
+                Admin accounts are created in MySQL. Ask your admin to add your email first.
+            </p>
+        </section>
+    </main>
+
+    <script src="auth.js"></script>
+    <script src="login.js"></script>
+</body>
+</html>

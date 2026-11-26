@@ -1179,3 +1179,106 @@ header h1 {
     from { transform: translateY(20px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
 }
+
+/* ==========================================================
+   Auth / sign-in
+   ========================================================== */
+.profile-role {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #a78bfa;
+    margin-top: 2px;
+}
+
+.profile-logout {
+    margin-top: 10px;
+    width: 100%;
+    background: transparent;
+    border: 1px solid #3a3b4a;
+    color: #cbd5e1;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.profile-logout:hover {
+    border-color: #a78bfa;
+    color: #fff;
+}
+
+button.gmail-reconnect {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+}
+
+button.gmail-connect-btn {
+    cursor: pointer;
+}
+
+.login-page {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px 16px;
+}
+
+.login-shell {
+    width: min(420px, 100%);
+}
+
+.login-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    font-family: var(--font-mono);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.login-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    box-shadow: 6px 6px 0 var(--ink);
+    padding: 28px;
+}
+
+.login-heading h1 {
+    margin: 8px 0 6px;
+    font-size: 1.6rem;
+}
+
+.login-heading p {
+    margin: 0 0 18px;
+    color: var(--text-muted);
+    font-size: 0.86rem;
+    line-height: 1.5;
+}
+
+.login-submit {
+    width: 100%;
+    margin-top: 14px;
+}
+
+.login-error {
+    min-height: 18px;
+    margin-top: 8px;
+    color: var(--red);
+    font-size: 0.78rem;
+}
+
+.login-hint {
+    margin: 16px 0 0;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    line-height: 1.4;
+}
