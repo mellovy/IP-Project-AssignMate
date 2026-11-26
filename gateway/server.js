@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const cors = require('cors');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
 app.use(cors());
@@ -46,4 +47,6 @@ app.use('/user_service', createProxy(3001));
 // 3. Route to Task Service (Port 3002)
 app.use('/task_service', createProxy(3002));
 
-app.listen(20201, '0.0.0.0', () => console.log('Gateway and Dashboard running on port 20201'));
+const PORT = Number(process.env.PORT) || 20339;
+
+app.listen(PORT, '0.0.0.0', () => console.log(`Gateway and Dashboard running on port ${PORT}`));

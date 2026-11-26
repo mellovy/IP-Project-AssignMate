@@ -52,7 +52,7 @@ AssignMate is a web-based dashboard for managing team tasks and projects. It all
 4. Start all services together:
    - `npm start` (or `node start.js`)
    - *Alternatively, run individually in separate terminals:*
-     - `node gateway/server.js` (Port 20201)
+     - `node gateway/server.js` (Port 20339 by default; set `PORT=20201` locally)
      - `node user_service/server.js` (Port 3001)
      - `node task_service/server.js` (Port 3002)
 5. Visit https://assignmate.dcism.org and open **Team Members**.
