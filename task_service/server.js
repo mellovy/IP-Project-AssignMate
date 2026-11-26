@@ -3,6 +3,9 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
+const { sendTaskEmail } = require('./email');
+const { daysUntilDeadline, isReminderDue } = require('./reminder-utils');
+
 const app = express();
 app.use(cors({
     origin: '*',
@@ -12,6 +15,12 @@ app.use(cors({
 app.use(express.json());
 
 const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://localhost:3001';
+const REMINDER_DAYS_BEFORE = Number.isFinite(Number(process.env.REMINDER_DAYS_BEFORE))
+    ? Math.max(0, Number(process.env.REMINDER_DAYS_BEFORE))
+    : 2;
+const REMINDER_CHECK_INTERVAL_MINUTES = Number.isFinite(Number(process.env.REMINDER_CHECK_INTERVAL_MINUTES))
+    ? Math.max(1, Number(process.env.REMINDER_CHECK_INTERVAL_MINUTES))
+    : 60;
 
 // In-memory storage
 let tasks = [];
@@ -108,6 +117,58 @@ function generateIcsContent(task) {
         'END:VEVENT',
         'END:VCALENDAR'
     ].filter(Boolean).join('\r\n');
+}
+
+async function sendAssignmentEmail(task) {
+    const result = await sendTaskEmail(task, {
+        kind: 'assignment',
+        calendarUrl: generateGoogleCalendarUrl(task)
+    });
+
+    if (!result.sent) {
+        console.warn(`Assignment email not sent for task ${task.id}: ${result.reason}`);
+    }
+
+    return result;
+}
+
+async function sendReminderEmail(task) {
+    const result = await sendTaskEmail(task, {
+        kind: 'reminder',
+        daysLeft: daysUntilDeadline(task.deadline),
+        calendarUrl: generateGoogleCalendarUrl(task)
+    });
+
+    if (!result.sent) {
+        console.warn(`Reminder email not sent for task ${task.id}: ${result.reason}`);
+    }
+
+    return result;
+}
+
+let reminderCheckRunning = false;
+
+async function checkDueReminders() {
+    if (reminderCheckRunning) return;
+    reminderCheckRunning = true;
+
+    try {
+        const now = new Date();
+        const dueTasks = tasks.filter(task => isReminderDue(task, now, REMINDER_DAYS_BEFORE));
+
+        for (const task of dueTasks) {
+            task.reminder_sent = true;
+            const result = await sendReminderEmail(task);
+
+            if (result.sent) {
+                console.log(`Reminder email sent for task ${task.id} to ${result.to || task.assigned_user_email}`);
+            } else {
+                task.reminder_sent = false;
+            }
+        }
+    } finally {
+        reminderCheckRunning = false;
+    }
 }
 
 // Initialize sample tasks with deadlines ready for class demo
@@ -228,6 +289,7 @@ app.put('/api/tasks/:id/auto-assign', async (req, res) => {
         task.assigned_user_email = bestUser.email || `${bestUser.name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@gmail.com`;
         task.status = 'assigned';
         task.calendar_synced = true;
+        task.reminder_sent = false;
 
         if (!task.deadline) {
             task.deadline = getDefaultDeadline(7);
@@ -242,11 +304,13 @@ app.put('/api/tasks/:id/auto-assign', async (req, res) => {
         }
 
         const calendarUrl = generateGoogleCalendarUrl(task);
+        const email = await sendAssignmentEmail(task);
 
         res.json({
             message: `Successfully assigned to ${bestUser.name}`,
             user: bestUser,
             task,
+            email,
             calendar: {
                 synced: true,
                 target_email: task.assigned_user_email,
@@ -282,6 +346,7 @@ app.post('/api/tasks', (req, res) => {
         assigned_user_email: null,
         calendar_synced: false,
         calendar_event_id: null,
+        reminder_sent: false,
         progress_percent: 0,
         created_at: new Date().toISOString()
     };
@@ -308,14 +373,24 @@ app.put('/api/tasks/:id', async (req, res) => {
     if (description !== undefined) task.description = description;
     if (specifications !== undefined) task.specifications = specifications;
     if (required_skill !== undefined) task.required_skill = required_skill;
-    if (deadline !== undefined) task.deadline = deadline;
+    if (deadline !== undefined && deadline !== task.deadline) {
+        task.deadline = deadline;
+        task.reminder_sent = false;
+    }
     if (calendar_synced !== undefined) task.calendar_synced = Boolean(calendar_synced);
-    if (assigned_user_email !== undefined) task.assigned_user_email = assigned_user_email;
+    if (assigned_user_email !== undefined && assigned_user_email !== task.assigned_user_email) {
+        task.assigned_user_email = assigned_user_email;
+        task.reminder_sent = false;
+    }
     if (parent_id !== undefined) task.parent_id = parent_id ? Number(parent_id) : null;
     if (task_type !== undefined) task.task_type = task_type;
 
     if (status !== undefined && status !== prevStatus) {
         task.status = status;
+
+        if (status === 'assigned') {
+            task.reminder_sent = false;
+        }
 
         if (assignedUserId) {
             if (status === 'completed' && prevStatus !== 'completed') {
@@ -421,6 +496,30 @@ app.post('/api/tasks/:id/sync-calendar', async (req, res) => {
     });
 });
 
+// POST: Send a deadline reminder email now
+app.post('/api/tasks/:id/send-reminder', async (req, res) => {
+    const task = findTaskById(req.params.id);
+    if (!task) return res.status(404).json({ error: "Task not found" });
+    if (!task.assigned_user_email) {
+        return res.status(400).json({ error: "Assign this task before sending a reminder" });
+    }
+    if (task.status === 'completed') {
+        return res.status(400).json({ error: "Completed tasks do not need reminders" });
+    }
+
+    const result = await sendReminderEmail(task);
+    if (!result.sent) {
+        return res.status(503).json({ error: result.reason });
+    }
+
+    task.reminder_sent = true;
+    res.json({
+        success: true,
+        message: `Reminder sent to ${result.to || task.assigned_user_email}`,
+        email: result
+    });
+});
+
 // GET: Single task with details
 app.get('/api/tasks/:id', (req, res) => {
     const task = findTaskById(req.params.id);
@@ -502,5 +601,12 @@ app.delete('/api/tasks/:id', async (req, res) => {
 
     res.json({ message: "Task deleted" });
 });
+
+setInterval(() => {
+    checkDueReminders().catch(err => console.error('Reminder check failed:', err));
+}, REMINDER_CHECK_INTERVAL_MINUTES * 60 * 1000);
+
+checkDueReminders().catch(err => console.error('Initial reminder check failed:', err));
+console.log(`Email reminders active via per-user Google OAuth (${REMINDER_DAYS_BEFORE} day(s) before deadline)`);
 
 app.listen(3002, () => console.log('Task Service running on port 3002'));

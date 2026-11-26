@@ -11,6 +11,7 @@ let isEditMode = false;
 // Leave the rest of the file exactly the same...
 
 document.addEventListener('DOMContentLoaded', () => {
+    handleGoogleCallback();
     loadDashboardData();
 });
 
@@ -225,26 +226,47 @@ async function loadUsers() {
             return;
         }
 
-        container.innerHTML = allUsers.map(user => `
-            <div class="user-row" style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="display: flex; align-items: center; gap: 14px;">
-                    <div class="user-avatar" style="background-image: url('${user.avatar_url || ''}'); background-size: cover;">
-                        ${user.avatar_url ? '' : escapeHtml(user.name).charAt(0)}
+        container.innerHTML = allUsers.map(user => {
+            const connected = Boolean(user.google_connected);
+            const connectedEmail = user.google_email || user.email || 'Google account';
+            const googleAction = connected
+                ? `<div class="gmail-status connected" title="AssignMate sends this member's email from their connected Gmail account">
+                        <span class="gmail-status-dot"></span>
+                        <div class="gmail-status-copy">
+                            <div class="gmail-status-label">Gmail connected</div>
+                            <div class="gmail-status-email">${escapeHtml(connectedEmail)}</div>
+                        </div>
+                        <a class="gmail-reconnect" href="${USER_SERVICE_URL}/users/${user.id}/google/connect">Reconnect</a>
+                   </div>`
+                : `<a class="btn btn-ghost gmail-connect-btn" href="${USER_SERVICE_URL}/users/${user.id}/google/connect" title="Authorize Gmail sending for this member">
+                        <span class="gmail-mark">✉</span>
+                        Connect Google
+                   </a>`;
+
+            return `
+                <div class="user-row">
+                    <div class="user-identity">
+                        <div class="user-avatar" style="background-image: url('${user.avatar_url || ''}'); background-size: cover;">
+                            ${user.avatar_url ? '' : escapeHtml(user.name).charAt(0)}
+                        </div>
+                        <div class="user-info">
+                            <div class="user-row-name">${escapeHtml(user.name)}</div>
+                            <div class="user-email-line">
+                                <span>✉</span>
+                                <span>${escapeHtml(user.email || 'No email set')}</span>
+                            </div>
+                            <div class="user-skills">
+                                ${(user.skills || [user.skill]).map(sk => `<span class="tag">${escapeHtml(sk)}</span>`).join('')}
+                            </div>
+                        </div>
                     </div>
-                    <div class="user-info">
-                        <div class="user-row-name">${escapeHtml(user.name)}</div>
-                        <div style="font-size: 0.78rem; color: var(--text-muted); display: flex; align-items: center; gap: 6px; margin: 3px 0 6px;">
-                            <span>✉</span>
-                            <span style="font-family: var(--font-mono); font-size: 0.75rem;">${escapeHtml(user.email || 'No email set')}</span>
-                        </div>
-                        <div class="user-skills">
-                            ${(user.skills || [user.skill]).map(sk => `<span class="tag">${escapeHtml(sk)}</span>`).join('')}
-                        </div>
+                    <div class="user-actions">
+                        ${googleAction}
+                        <button class="btn btn-ghost" onclick="deleteUser(${user.id})" style="color: #ef4444; border-color: #fca5a5;">Delete</button>
                     </div>
                 </div>
-                <button class="btn btn-ghost" onclick="deleteUser(${user.id})" style="color: #ef4444; border-color: #fca5a5;">Delete</button>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     } catch (err) {
         console.error("Error loading users:", err);
     }
@@ -874,7 +896,23 @@ async function syncCalendarWithFeedback(taskId) {
     }
 }
 
-function showToast(message) {
+function handleGoogleCallback() {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('google');
+    if (!status) return;
+
+    if (status === 'connected') {
+        showToast('Gmail connected. Assignments and reminders will send from this member’s inbox.', '✉');
+    } else if (status === 'error') {
+        showToast('Gmail connection failed. Check the OAuth client and redirect URI.', '⚠');
+    }
+
+    params.delete('google');
+    const query = params.toString();
+    history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}#user-section`);
+}
+
+function showToast(message, icon = '📅') {
     const existing = document.getElementById('assignmate-toast');
     if (existing) existing.remove();
 
@@ -882,7 +920,7 @@ function showToast(message) {
     toast.id = 'assignmate-toast';
     toast.className = 'calendar-toast';
     toast.innerHTML = `
-        <span style="font-size: 1.15rem;">📅</span>
+        <span style="font-size: 1.15rem;">${icon}</span>
         <span>${escapeHtml(message)}</span>
     `;
     document.body.appendChild(toast);
