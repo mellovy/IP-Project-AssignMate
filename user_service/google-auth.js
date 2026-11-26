@@ -3,7 +3,7 @@ const nodemailer = require('nodemailer');
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:20201/user_service/api/auth/google/callback';
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'https://assignmate.dcism.org/user_service/api/auth/google/callback';
 const GOOGLE_SCOPE = 'openid email https://www.googleapis.com/auth/gmail.send';
 const STATE_TTL_MS = 10 * 60 * 1000;
 

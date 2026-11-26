@@ -40,6 +40,8 @@ AssignMate is a web-based dashboard for managing team tasks and projects. It all
    - Configure the OAuth consent screen. If the app is in Testing mode, add every member's Gmail address as a test user.
    - Create an OAuth client of type **Web application**.
    - Add this authorized redirect URI exactly:
+     `https://assignmate.dcism.org/user_service/api/auth/google/callback`
+   - For local development, also add:
      `http://localhost:20201/user_service/api/auth/google/callback`
    - Copy the client ID and client secret.
 3. Configure environment variables:
@@ -53,7 +55,7 @@ AssignMate is a web-based dashboard for managing team tasks and projects. It all
      - `node gateway/server.js` (Port 20201)
      - `node user_service/server.js` (Port 3001)
      - `node task_service/server.js` (Port 3002)
-5. Visit http://localhost:20201 and open **Team Members**.
+5. Visit https://assignmate.dcism.org and open **Team Members**.
    - Add each member with their real Gmail address.
    - Click **Connect Google** next to the member and approve Gmail sending access.
    - The sample users use fake `@gmail.com` addresses; they cannot receive real email.
@@ -67,7 +69,7 @@ OAuth refresh tokens are kept in memory for this demo. A service restart require
 3. Trigger the reminder immediately:
 
 ```bash
-curl -X POST http://localhost:20201/task_service/api/tasks/1/send-reminder
+curl -X POST https://assignmate.dcism.org/task_service/api/tasks/1/send-reminder
 ```
 
 The email is sent from the member's connected Gmail account to the same address. If the member has not connected Google, the task service returns an error and the rest of the dashboard continues to work.
