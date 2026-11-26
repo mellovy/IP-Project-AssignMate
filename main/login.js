@@ -37,6 +37,6 @@ loginForm.addEventListener('submit', async (event) => {
         loginError.textContent = 'Login service is unavailable: ' + err.message;
     } finally {
         button.disabled = false;
-        button.textContent = 'Continue';
+        button.textContent = 'Sign in';
     }
 });

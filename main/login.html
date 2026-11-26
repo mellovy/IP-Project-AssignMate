@@ -15,26 +15,17 @@
             <span>AssignMate</span>
         </div>
 
-        <section class="login-card">
-            <div class="login-heading">
-                <span class="tag">Dispatch board</span>
-                <h1>Sign in</h1>
-                <p>Use the real email your admin added. Members see only their own tasks and can connect their own Gmail.</p>
-            </div>
-
+        <div class="login-card">
             <form id="login-form" autocomplete="on">
                 <div class="form-group">
-                    <label for="login-email">Email</label>
                     <input type="email" id="login-email" name="email" placeholder="you@example.com" required autofocus>
                 </div>
                 <div id="login-error" class="login-error" role="alert"></div>
-                <button type="submit" class="btn btn-primary login-submit">Continue</button>
+                <button type="submit" class="btn btn-primary login-submit">Sign in</button>
             </form>
 
-            <p class="login-hint">
-                Admin accounts are created in MySQL. Ask your admin to add your email first.
-            </p>
-        </section>
+            <p class="login-hint">Ask the admin to add your email.</p>
+        </div>
     </main>
 
     <script src="auth.js"></script>

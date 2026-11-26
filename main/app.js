@@ -2,6 +2,30 @@
 const USER_SERVICE_URL = '/user_service/api';
 const TASK_SERVICE_URL = '/task_service/api';
 
+// Workflow stages. Ownership (assigned_user_id) is separate from status.
+const TASK_STATUSES = [
+    { value: 'backlog', label: 'Backlog' },
+    { value: 'in_progress', label: 'In Progress' },
+    { value: 'completed', label: 'Complete' }
+];
+
+function statusLabel(status) {
+    const match = TASK_STATUSES.find(s => s.value === status);
+    return match ? match.label : status;
+}
+
+function statusSwitchHtml(taskId, currentStatus) {
+    return `
+        <div class="status-switch" role="group" aria-label="Task status">
+            ${TASK_STATUSES.map(s => `
+                <button type="button"
+                    class="status-switch-btn ${s.value === currentStatus ? 'active' : ''}"
+                    data-status="${s.value}"
+                    onclick="event.stopPropagation(); setTaskStatus(${taskId}, '${s.value}')">${s.label}</button>
+            `).join('')}
+        </div>`;
+}
+
 let allSkills = [];
 let allUsers = [];
 let allTasks = [];
@@ -42,6 +66,8 @@ function togglePanel(btn) {
 
     const isOpen = panel.classList.contains('open');
 
+    btn.setAttribute('aria-expanded', String(!isOpen));
+
     if (isOpen) {
         // Closing: lock in the current rendered height, then animate down to 0
         body.style.height = body.scrollHeight + 'px';
@@ -60,6 +86,9 @@ function togglePanel(btn) {
                 body.removeEventListener('transitionend', onDone);
             }
         });
+
+        const firstField = body.querySelector('input, select, textarea');
+        if (firstField) firstField.focus();
     }
 }
 window.togglePanel = togglePanel;
@@ -69,6 +98,7 @@ async function loadDashboardData() {
     await Promise.all([loadSkills(), loadUsers(), loadTasks()]);
     updateStats();
     populateSkillDropdowns();
+    renderSkillManager();
     if (isAdmin()) await populateParentSelector();
 
     const deadlineInput = document.getElementById('task-deadline');
@@ -78,7 +108,7 @@ async function loadDashboardData() {
         deadlineInput.value = def.toISOString().split('T')[0];
     }
 
-    if (document.getElementById('project-container')) {
+    if (isAdmin() && document.getElementById('project-container')) {
         loadProjects();
     }
 }
@@ -165,7 +195,7 @@ function updateStats() {
     const tasks = Array.isArray(allTasks) ? allTasks : [];
     const users = Array.isArray(allUsers) ? allUsers : [];
 
-    const unassignedCount = tasks.filter(t => t.status === 'unassigned' && t.task_type === 'task').length;
+    const backlogCount = tasks.filter(t => t.status === 'backlog' && t.task_type === 'task').length;
     const userCount = users.length;
     const totalTasks = tasks.filter(t => t.task_type === 'task').length;
     const completedTasks = tasks.filter(t => t.status === 'completed' && t.task_type === 'task').length;
@@ -173,7 +203,7 @@ function updateStats() {
     const velocity = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 10) : 0;
 
     const statUnassigned = document.getElementById('stat-unassigned');
-    if (statUnassigned) statUnassigned.textContent = unassignedCount;
+    if (statUnassigned) statUnassigned.textContent = backlogCount;
     const statUsers = document.getElementById('stat-users');
     if (statUsers) statUsers.textContent = userCount;
     const statCompletion = document.getElementById('stat-completion');
@@ -328,11 +358,54 @@ async function addNewSkill() {
             document.getElementById('new-skill-name').value = '';
             await loadSkills();
             populateSkillDropdowns();
+            renderSkillManager();
+        } else {
+            const data = await response.json().catch(() => ({}));
+            alert(data.error || 'Failed to add skill');
         }
     } catch (err) {
         alert("Failed to add skill");
     }
 }
+
+function renderSkillManager() {
+    const list = document.getElementById('skill-list');
+    if (!list) return;
+
+    if (allSkills.length === 0) {
+        list.innerHTML = '<span class="form-hint">No skills yet</span>';
+        return;
+    }
+
+    list.innerHTML = allSkills.map(skill => `
+        <span class="skill-chip">
+            ${escapeHtml(skill.name)}
+            ${isAdmin() ? `<button type="button" class="skill-chip-remove" title="Remove ${escapeHtml(skill.name)}" onclick="deleteSkill(${skill.id}, '${escapeHtml(skill.name)}')">&times;</button>` : ''}
+        </span>
+    `).join('');
+}
+
+async function deleteSkill(skillId, skillName) {
+    if (!confirm(`Remove the skill "${skillName}"? It will be taken off every member.`)) return;
+
+    try {
+        const response = await apiFetch(`${USER_SERVICE_URL}/skills/${skillId}`, { method: 'DELETE' });
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            alert(data.error || 'Failed to remove skill');
+            return;
+        }
+
+        await loadSkills();
+        populateSkillDropdowns();
+        renderSkillManager();
+        await loadUsers();
+        showToast(`Removed skill "${skillName}"`);
+    } catch (err) {
+        alert('Failed to remove skill: ' + err.message);
+    }
+}
+window.deleteSkill = deleteSkill;
 
 // --- TASK SERVICE LOGIC ---
 async function loadTasks() {
@@ -390,12 +463,12 @@ function renderTaskCard(task) {
                     ${task.description ? escapeHtml(task.description.substring(0, 60)) + (task.description.length > 60 ? '...' : '') : 'No description'}
                 </p>
                 <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
-                    <span class="status-badge ${task.status}">${task.status}</span>
+                    <span class="status-badge ${task.status}">${statusLabel(task.status)}</span>
                     ${isProjectChild ? '<span class="tag blue">Sub-task</span>' : ''}
                     ${task.assigned_user_id
                         ? (task.calendar_synced
                             ? '<span class="tag success" style="font-size: 0.7rem;">📅 Calendar synced</span>'
-                            : '<span class="tag" style="font-size: 0.7rem; color: var(--amber);">📅 Not synced</span>')
+                            : '<span class="tag" style="font-size: 0.7rem; color: var(--amber);">📅 Syncing automatically</span>')
                         : ''}
                 </div>
             </div>
@@ -410,30 +483,23 @@ function renderTaskCard(task) {
                     </div>
                 </div>
             ` : ''}
-            ${task.status === 'unassigned' ?
-                (isAdmin()
+            ${!task.assigned_user_id
+                ? (isAdmin()
                     ? `<button class="btn btn-primary" style="margin-top: 14px; width: 100%;"
                        onclick="event.stopPropagation(); autoAssign(${task.id})">Auto-Assign Task</button>`
-                    : '<div class="tag" style="margin-top: 14px;">Unassigned</div>') :
-                task.status === 'assigned' ?
-                `<div style="display: flex; flex-direction: column; gap: 6px; margin-top: 14px;">
+                    : '<div class="tag" style="margin-top: 14px;">No owner yet</div>')
+                : `<div style="display: flex; flex-direction: column; gap: 6px; margin-top: 14px;">
                     <button class="btn btn-calendar" style="width: 100%; font-size: 0.78rem;"
                      onclick="event.stopPropagation(); openInGoogleCalendar(${task.id})">
                         <span>📅</span>
                         <span>Open in Google Calendar</span>
                     </button>
                     <button class="btn btn-ghost" style="width: 100%; font-size: 0.75rem;"
-                     onclick="event.stopPropagation(); syncCalendarWithFeedback(${task.id})">Sync to Google Calendar</button>
-                    <button class="btn btn-ghost" style="width: 100%; font-size: 0.75rem;"
                      onclick="event.stopPropagation(); resendEmail(${task.id}, this)">Resend email</button>
-                    <button class="btn btn-success" style="width: 100%;"
-                     onclick="event.stopPropagation(); completeTask(${task.id})">Mark Complete</button>
-                 </div>` :
-                `<div style="display: flex; flex-direction: column; gap: 6px; margin-top: 14px;">
-                    <div class="tag success" style="width: 100%; text-align: center;">Completed</div>
-                    <button class="btn btn-ghost" style="width: 100%; font-size: 0.75rem; padding: 4px;"
-                     onclick="event.stopPropagation(); openInGoogleCalendar(${task.id})">📅 View in Google Calendar</button>
                  </div>`}
+            <div style="margin-top: 12px;">
+                ${statusSwitchHtml(task.id, task.status)}
+            </div>
         </div>
     `;
 }
@@ -481,7 +547,7 @@ async function loadProjects() {
                 </div>
                 <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);">
                     <span>${project.progress?.completed || 0} / ${project.progress?.total || 0} tasks completed</span>
-                    <span>${project.status}</span>
+                    <span>${statusLabel(project.status)}</span>
                 </div>
             </div>
         `).join('');
@@ -612,10 +678,6 @@ function renderModal() {
     const cancelBtn = document.getElementById('modal-cancel-btn');
     editBtn.style.display = isAdmin() ? 'inline-block' : 'none';
 
-    // Clean up dynamic complete button
-    const existingCompleteBtn = document.getElementById('modal-complete-btn');
-    if (existingCompleteBtn) existingCompleteBtn.remove();
-
     if (isEditMode) {
         editBtn.textContent = 'Save';
         editBtn.onclick = saveTaskEdit;
@@ -647,9 +709,7 @@ function renderModal() {
             <div class="modal-field">
                 <label>Status</label>
                 <select id="edit-status">
-                    <option value="unassigned" ${task.status === 'unassigned' ? 'selected' : ''}>Unassigned</option>
-                    <option value="assigned" ${task.status === 'assigned' ? 'selected' : ''}>Assigned</option>
-                    <option value="completed" ${task.status === 'completed' ? 'selected' : ''}>Completed</option>
+                    ${TASK_STATUSES.map(s => `<option value="${s.value}" ${s.value === task.status ? 'selected' : ''}>${s.label}</option>`).join('')}
                 </select>
             </div>
         `;
@@ -657,16 +717,6 @@ function renderModal() {
         editBtn.textContent = 'Edit';
         editBtn.onclick = toggleEditMode;
         cancelBtn.style.display = 'none';
-
-        // Show Mark Complete button for assigned tasks
-        if (task.task_type !== 'project' && task.status === 'assigned') {
-            const completeBtn = document.createElement('button');
-            completeBtn.id = 'modal-complete-btn';
-            completeBtn.className = 'btn btn-success';
-            completeBtn.textContent = 'Mark Complete';
-            completeBtn.onclick = () => completeTask(task.id);
-            document.getElementById('modal-footer').insertBefore(completeBtn, editBtn);
-        }
 
         let subtasksHtml = '';
         if (task.task_type === 'project' && task.subtasks) {
@@ -680,7 +730,7 @@ function renderModal() {
                         ${task.subtasks.map(st => `
                             <div class="subtask-item ${st.status}">
                                 <span>${escapeHtml(st.title)}</span>
-                                <span class="status-badge ${st.status}">${st.status}</span>
+                                <span class="status-badge ${st.status}">${statusLabel(st.status)}</span>
                             </div>
                         `).join('')}
                     </div>
@@ -692,7 +742,7 @@ function renderModal() {
             <div class="modal-meta">
                 <div class="modal-meta-item">
                     <span class="modal-meta-label">Status</span>
-                    <span class="status-badge ${task.status}">${task.status}</span>
+                    <span class="status-badge ${task.status}">${statusLabel(task.status)}</span>
                 </div>
                 <div class="modal-meta-item">
                     <span class="modal-meta-label">All-Day Deadline</span>
@@ -725,15 +775,15 @@ function renderModal() {
                         <span style="font-size: 1.15rem;">📅</span>
                         <h4 style="margin: 0; font-size: 0.95rem;">Google Calendar Integration</h4>
                     </div>
-                    <span class="status-badge ${task.calendar_synced ? 'completed' : task.assigned_user_id ? 'assigned' : 'unassigned'}" style="font-size: 0.72rem;">
-                        ${task.calendar_synced ? '✓ Synced to Google Calendar' : task.assigned_user_id ? '• Not synced yet' : 'Awaiting Assignment'}
+                    <span class="status-badge ${task.calendar_synced ? 'completed' : task.assigned_user_id ? 'in_progress' : 'backlog'}" style="font-size: 0.72rem;">
+                        ${task.calendar_synced ? '✓ On Google Calendar' : task.assigned_user_id ? '• Syncing automatically' : 'Waiting for an owner'}
                     </span>
                 </div>
                 <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.45; margin-bottom: 12px;">
                     ${task.assigned_user_id ?
                         (task.calendar_synced
                             ? `This <strong>all-day deadline</strong> is on <strong>${escapeHtml(task.assigned_user_name || assignedUser?.name)}</strong>'s Google Calendar for <strong>${escapeHtml(formatDeadlineDisplay(task.deadline))}</strong>.`
-                            : `This deadline is not on the member's calendar yet. Click <strong>Sync to Google Calendar</strong> to create the all-day event.`) :
+                            : `Once the owner connects Google, this deadline is added to their calendar automatically.`) :
                         `Assign this task to create an <strong>all-day deadline</strong> event in the member's personal Google Calendar.`}
                 </p>
                 <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
@@ -745,12 +795,15 @@ function renderModal() {
                         <span>📥</span>
                         <span>Download .ics</span>
                     </a>
-                    <button class="btn btn-ghost" onclick="syncCalendarWithFeedback(${task.id})" style="font-size: 0.8rem;" ${!task.assigned_user_id ? 'disabled' : ''}>
-                        <span>🔄</span>
-                        <span>Sync to Google Calendar</span>
-                    </button>
                 </div>
             </div>
+
+            ${task.task_type !== 'project' ? `
+                <div class="modal-section" style="margin-top: 14px;">
+                    <h4>Move this task</h4>
+                    ${statusSwitchHtml(task.id, task.status)}
+                </div>
+            ` : ''}
 
             <div class="modal-section" style="margin-top: 14px;">
                 <h4>Description</h4>
@@ -799,35 +852,37 @@ async function saveTaskEdit() {
     }
 }
 
-async function completeTask(taskId) {
+async function setTaskStatus(taskId, status) {
     try {
         const response = await apiFetch(`${TASK_SERVICE_URL}/tasks/${taskId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'completed' })
+            body: JSON.stringify({ status })
         });
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: 'Unknown server error' }));
-            console.error('completeTask failed:', response.status, errorData);
-            alert(`Failed to mark task as complete: ${errorData.error || response.statusText}`);
+            console.error('setTaskStatus failed:', response.status, errorData);
+            alert(`Failed to update status: ${errorData.error || response.statusText}`);
             return;
         }
 
         await loadTasks();
-        if (document.getElementById('project-section').style.display !== 'none') {
+        if (isAdmin() && document.getElementById('project-container')) {
             await loadProjects();
         }
         updateStats();
 
-        // Refresh modal if it's open for this task
         if (currentModalTask && currentModalTask.id === taskId) {
             await openTaskModal(taskId);
         }
+
+        showToast(`Status set to ${statusLabel(status)}`);
     } catch (err) {
-        alert("Failed to mark task as complete");
+        alert("Failed to update task status");
     }
 }
+window.setTaskStatus = setTaskStatus;
 
 function escapeHtml(text) {
     if (!text) return '';
@@ -922,28 +977,6 @@ async function openInGoogleCalendar(taskId) {
     } catch (err) {
         console.error("Calendar open error:", err);
         alert("Unable to open Google Calendar: " + err.message);
-    }
-}
-
-async function syncCalendarWithFeedback(taskId) {
-    try {
-        showToast("Testing Google Calendar API sync...");
-        const res = await apiFetch(`${TASK_SERVICE_URL}/tasks/${taskId}/sync-calendar`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        const data = await res.json();
-        if (res.ok) {
-            showToast(`Calendar sync confirmed for ${data.task?.assigned_user_name || 'assignee'}!`);
-            await loadTasks();
-            if (currentModalTask && currentModalTask.id === taskId) {
-                await openTaskModal(taskId);
-            }
-        } else {
-            alert(data.error || "Calendar sync failed");
-        }
-    } catch (err) {
-        alert("Calendar Sync Error: " + err.message);
     }
 }
 

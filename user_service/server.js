@@ -107,6 +107,22 @@ app.post('/api/skills', requireAuth, requireAdmin, async (req, res, next) => {
     }
 });
 
+// DELETE: Remove a skill (admin)
+app.delete('/api/skills/:id', requireAuth, requireAdmin, async (req, res, next) => {
+    const skillId = Number(req.params.id);
+    if (!Number.isInteger(skillId)) {
+        return res.status(400).json({ error: 'Invalid skill id' });
+    }
+
+    try {
+        const [result] = await pool.execute('DELETE FROM skills WHERE id = ?', [skillId]);
+        if (!result.affectedRows) return res.status(404).json({ error: 'Skill not found' });
+        res.json({ message: 'Skill deleted' });
+    } catch (err) {
+        next(err);
+    }
+});
+
 // GET: Least-busy user with a skill (internal, used by task_service)
 app.get('/api/users/match/:skill', requireInternal, async (req, res, next) => {
     try {
@@ -389,7 +405,7 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res, next) =
         await pool.execute(
             `UPDATE tasks
              SET assigned_user_id = NULL, assigned_user_name = NULL,
-                 assigned_user_email = NULL, status = 'unassigned',
+                 assigned_user_email = NULL, status = 'backlog',
                  calendar_synced = 0, calendar_event_id = NULL
              WHERE assigned_user_id = ?`,
             [userId]

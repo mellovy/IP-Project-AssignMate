@@ -12,12 +12,13 @@ AssignMate is a web-based dashboard for managing team tasks and projects. It all
 
 - MySQL-backed users, skills, tasks, projects, and login sessions
 - Email login with `admin` and `member` roles
-- Admin: full task/project/team management
-- Member: own tasks, mark own tasks complete, connect own Gmail and Calendar
+- Admin: full task/project/team management, add or remove skills
+- Member: own tasks, move own tasks through **Backlog → In Progress → Complete**, connect own Gmail and Calendar
 - Automatic task assignment based on skills and workload
 - **Google Calendar Integration**:
   - Creates real **all-day deadline events** with the Google Calendar API.
-  - Shows **Calendar synced / Not synced** on task cards in the overview.
+  - **Fully automatic**: a background sweep re-syncs any assigned task whose event is missing (new task, new owner, moved deadline, late Google connect). No manual sync button.
+  - Shows **Calendar synced / Syncing automatically** on task cards and a dedicated **Calendar** tab.
   - 1-click **Open in Google Calendar** link and `.ics` download per task.
 - **Email Reminders with per-member Gmail OAuth**:
   - Each member connects their own Google account from Team Members.
@@ -41,6 +42,7 @@ AssignMate is a web-based dashboard for managing team tasks and projects. It all
    - Create/select the database in your hosting panel.
    - Run `database/schema.sql` in phpMyAdmin.
    - Add your real admin account by running the commented `INSERT INTO users` statement at the bottom of that file.
+   - Upgrading an existing install? Run `database/migrations/2026-11-27-status-vocabulary.sql` **before** deploying the new code (it converts the old `assigned` / `unassigned` statuses to `in_progress` / `backlog`).
 3. Create a Google Cloud OAuth client:
    - Create or select a project in Google Cloud Console.
    - Enable the **Gmail API** and **Google Calendar API**.
@@ -56,22 +58,32 @@ AssignMate is a web-based dashboard for managing team tasks and projects. It all
    - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
    - `GOOGLE_REDIRECT_URI`
    - `INTERNAL_API_KEY` (long random string)
-   - Optional: `SESSION_DAYS` (default `7`), `REMINDER_DAYS_BEFORE` (default `2`), `REMINDER_CHECK_INTERVAL_MINUTES` (default `60`)
+   - Optional: `SESSION_DAYS` (default `7`), `REMINDER_DAYS_BEFORE` (default `2`), `REMINDER_CHECK_INTERVAL_MINUTES` (default `60`), `CALENDAR_SYNC_INTERVAL_MINUTES` (default `1`)
 5. Start all services:
    - `npm start` (or `node start.js`)
    - Individually: `node gateway/server.js`, `node user_service/server.js`, `node task_service/server.js`
 6. Visit https://assignmate.dcism.org and sign in with your **real email**.
-   - Admin: add members with their real email and skills.
-   - Members: sign in, open **Team Members**, and click **Connect Google**. Approve Gmail + Calendar access. Then sync assignments from Overview.
+   - Admin: add members with their real email and skills, manage the skill list on Team Members, create tasks and projects.
+   - Members: sign in, open **Team Members**, and click **Connect Google**. Approve Gmail + Calendar access.
 
 There is no password step: login is by email, and sessions expire after `SESSION_DAYS`. If an email is not in MySQL, it cannot sign in.
+
+## Task Statuses
+
+| Status | Meaning |
+| --- | --- |
+| `backlog` | Not started yet (new tasks start here). |
+| `in_progress` | Actively being worked on. Auto-assign moves a task here. |
+| `completed` | Done. |
+
+Every task card has a **Backlog / In Progress / Complete** switch; admins and members can both move their own tasks. Changing the status, the owner, or the deadline invalidates the calendar event so it is re-synced automatically.
 
 ## Email and Calendar Testing
 
 1. Sign in as a member and connect Google (Gmail + Calendar scopes).
 2. As admin, create/assign a task to that member.
 3. The assignment email is sent from the member's Gmail to their real email.
-4. The task card shows **Calendar synced** when the Calendar API event was created; otherwise **Not synced** with a **Sync to Google Calendar** button.
+4. Within a minute the task card shows **Calendar synced** once the Calendar API event was created; until then it reads **Syncing automatically**. The **Calendar** tab lists every deadline grouped by date.
 
 If a member has not connected Google, assignment still succeeds but email/calendar sync reports the reason in the API response and the dashboard continues to work.
 

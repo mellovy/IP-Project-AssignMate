@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     deadline DATE NULL,
     parent_id INT UNSIGNED NULL,
     task_type ENUM('task', 'project') NOT NULL DEFAULT 'task',
-    status ENUM('unassigned', 'assigned', 'completed') NOT NULL DEFAULT 'unassigned',
+    status ENUM('backlog', 'in_progress', 'completed') NOT NULL DEFAULT 'backlog',
     assigned_user_id INT UNSIGNED NULL,
     assigned_user_name VARCHAR(120) NULL,
     assigned_user_email VARCHAR(255) NULL,

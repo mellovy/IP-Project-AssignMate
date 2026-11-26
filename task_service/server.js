@@ -24,6 +24,11 @@ const REMINDER_DAYS_BEFORE = Number.isFinite(Number(process.env.REMINDER_DAYS_BE
 const REMINDER_CHECK_INTERVAL_MINUTES = Number.isFinite(Number(process.env.REMINDER_CHECK_INTERVAL_MINUTES))
     ? Math.max(1, Number(process.env.REMINDER_CHECK_INTERVAL_MINUTES))
     : 60;
+// Calendar sync is automatic: this sweep re-syncs any assigned task whose
+// event is missing (new task, new owner, moved deadline, late Google connect).
+const CALENDAR_SYNC_INTERVAL_MINUTES = Number.isFinite(Number(process.env.CALENDAR_SYNC_INTERVAL_MINUTES))
+    ? Math.max(1, Number(process.env.CALENDAR_SYNC_INTERVAL_MINUTES))
+    : 1;
 
 function getDefaultDeadline(daysAhead = 7) {
     const d = new Date();
@@ -252,7 +257,7 @@ async function checkDueReminders() {
         const now = new Date();
         const [rows] = await pool.query(
             `SELECT * FROM tasks
-             WHERE status = 'assigned'
+             WHERE status = 'in_progress'
                AND assigned_user_id IS NOT NULL
                AND reminder_sent = 0
                AND deadline IS NOT NULL`
@@ -271,6 +276,38 @@ async function checkDueReminders() {
         }
     } finally {
         reminderCheckRunning = false;
+    }
+}
+
+let calendarSweepRunning = false;
+
+async function sweepCalendarSync() {
+    if (calendarSweepRunning) return;
+    calendarSweepRunning = true;
+
+    try {
+        const [rows] = await pool.query(
+            `SELECT * FROM tasks
+             WHERE assigned_user_id IS NOT NULL
+               AND calendar_synced = 0
+               AND status <> 'completed'`
+        );
+
+        for (const row of rows) {
+            const task = normalizeTask(row);
+            const calendar = await syncCalendarForTask(task);
+            await saveCalendarResult(task, calendar);
+
+            if (calendar.synced) {
+                console.log(`Calendar synced for task ${task.id}`);
+            } else {
+                console.warn(`Calendar pending for task ${task.id}: ${calendar.reason}`);
+            }
+        }
+    } catch (err) {
+        console.error('Calendar sweep failed:', err.message);
+    } finally {
+        calendarSweepRunning = false;
     }
 }
 
@@ -337,7 +374,7 @@ app.post('/api/tasks', requireAuth, requireAdmin, async (req, res, next) => {
             `INSERT INTO tasks
                 (title, description, specifications, required_skill, deadline,
                  parent_id, task_type, status, progress_percent)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'unassigned', 0)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'backlog', 0)`,
             [
                 String(title).trim(),
                 description || null,
@@ -382,7 +419,7 @@ app.put('/api/tasks/:id/auto-assign', requireAuth, requireAdmin, async (req, res
         await pool.execute(
             `UPDATE tasks
              SET assigned_user_id = ?, assigned_user_name = ?, assigned_user_email = ?,
-                 status = 'assigned', deadline = ?, reminder_sent = 0
+                 status = 'in_progress', deadline = ?, reminder_sent = 0, calendar_synced = 0
              WHERE id = ?`,
             [bestUser.id, bestUser.name, bestUser.email, deadline, task.id]
         );
@@ -429,11 +466,8 @@ app.put('/api/tasks/:id', requireAuth, async (req, res, next) => {
             if (body[key] !== undefined) fields[key] = body[key];
         }
 
-        if (fields.status !== undefined && !['unassigned', 'assigned', 'completed'].includes(fields.status)) {
+        if (fields.status !== undefined && !['backlog', 'in_progress', 'completed'].includes(fields.status)) {
             return res.status(400).json({ error: 'Invalid status' });
-        }
-        if (!isAdmin && fields.status !== undefined && !['assigned', 'completed'].includes(fields.status)) {
-            return res.status(403).json({ error: 'Members can only mark their own tasks assigned or completed' });
         }
         if (fields.task_type !== undefined && !['task', 'project'].includes(fields.task_type)) {
             return res.status(400).json({ error: 'Invalid task type' });
@@ -446,7 +480,13 @@ app.put('/api/tasks/:id', requireAuth, async (req, res, next) => {
         if (fields.calendar_synced !== undefined) fields.calendar_synced = fields.calendar_synced ? 1 : 0;
         if (fields.deadline !== undefined && fields.deadline !== task.deadline) fields.reminder_sent = 0;
         if (fields.assigned_user_email !== undefined && fields.assigned_user_email !== task.assigned_user_email) fields.reminder_sent = 0;
-        if (fields.status === 'assigned' && previousStatus !== 'assigned') fields.reminder_sent = 0;
+        if (fields.status === 'in_progress' && previousStatus !== 'in_progress') fields.reminder_sent = 0;
+
+        // Calendar is server-managed: any change that moves the deadline, the owner
+        // or the workflow stage invalidates the event so the sweep re-syncs it.
+        if (fields.deadline !== undefined && fields.deadline !== task.deadline) fields.calendar_synced = 0;
+        if (fields.assigned_user_email !== undefined && fields.assigned_user_email !== task.assigned_user_email) fields.calendar_synced = 0;
+        if (fields.status !== undefined && fields.status !== previousStatus) fields.calendar_synced = 0;
 
         const keys = Object.keys(fields);
         if (keys.length > 0) {
@@ -652,10 +692,16 @@ setInterval(() => {
     checkDueReminders().catch(err => console.error('Reminder check failed:', err));
 }, REMINDER_CHECK_INTERVAL_MINUTES * 60 * 1000);
 
+setInterval(() => {
+    sweepCalendarSync().catch(err => console.error('Calendar sweep failed:', err));
+}, CALENDAR_SYNC_INTERVAL_MINUTES * 60 * 1000);
+
 testConnection()
     .then(() => {
         checkDueReminders().catch(err => console.error('Initial reminder check failed:', err));
+        sweepCalendarSync().catch(err => console.error('Initial calendar sweep failed:', err));
         console.log(`Email reminders active via per-user Google OAuth (${REMINDER_DAYS_BEFORE} day(s) before deadline)`);
+        console.log(`Automatic Google Calendar sync active (every ${CALENDAR_SYNC_INTERVAL_MINUTES} minute(s))`);
         app.listen(3002, () => console.log('Task Service running on port 3002'));
     })
     .catch(err => {

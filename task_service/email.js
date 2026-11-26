@@ -54,7 +54,7 @@ async function sendTaskEmail(task, { kind = 'reminder', daysLeft, calendarUrl } 
     const details = [
         ['Task', task.title || 'Untitled task'],
         ['Assigned to', task.assigned_user_name || 'Team member'],
-        ['Status', task.status || 'assigned'],
+        ['Status', task.status || 'in_progress'],
         ['Required skill', task.required_skill || 'N/A'],
         ['Deadline', deadline]
     ];

@@ -589,17 +589,17 @@ header h1 {
     display: inline-block;
 }
 
-.status-badge.unassigned {
+.status-badge.backlog {
     background: #fbeed9;
     color: var(--amber);
 }
-.status-badge.unassigned::before { background: var(--amber); }
+.status-badge.backlog::before { background: var(--amber); }
 
-.status-badge.assigned {
+.status-badge.in_progress {
     background: #e5eafc;
     color: var(--blue);
 }
-.status-badge.assigned::before { background: var(--blue); }
+.status-badge.in_progress::before { background: var(--blue); }
 
 .status-badge.completed {
     background: #e2f3ee;
@@ -643,9 +643,9 @@ header h1 {
     transform: translateY(-2px);
 }
 
-.task-card.unassigned::before { background: var(--amber); }
-.task-card.assigned::before    { background: var(--blue); }
-.task-card.completed::before   { background: var(--teal); }
+.task-card.backlog::before      { background: var(--amber); }
+.task-card.in_progress::before  { background: var(--blue); }
+.task-card.completed::before    { background: var(--teal); }
 
 .task-card h3 {
     font-size: 0.98rem;
@@ -1049,7 +1049,18 @@ header h1 {
         flex-grow: 0;
     }
 
-    .user-profile { display: none; }
+    .user-profile {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+        padding-left: 12px;
+    }
+
+    .user-profile > div:first-child { display: none; }
+    .profile-role { margin-top: 0; }
+    .profile-logout { margin-top: 0; width: auto; padding: 4px 8px; }
 
     .main-content {
         margin-left: 0;
@@ -1281,4 +1292,303 @@ button.gmail-connect-btn {
     color: var(--text-muted);
     font-size: 0.72rem;
     line-height: 1.4;
+}
+
+/* ==========================================================
+   Status switch — segmented backlog / in progress / complete
+   ========================================================== */
+.status-switch {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    margin-top: 10px;
+    max-width: 100%;
+    flex-wrap: wrap;
+}
+
+.status-switch-btn {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.status-switch-btn:hover {
+    background: var(--surface);
+    color: var(--ink);
+}
+
+.status-switch-btn.active {
+    background: var(--ink);
+    color: #fff;
+}
+
+.status-switch-btn.active[data-status='backlog']      { background: var(--amber); }
+.status-switch-btn.active[data-status='in_progress']  { background: var(--blue); }
+.status-switch-btn.active[data-status='completed']    { background: var(--teal); }
+
+.status-switch-btn:focus-visible,
+.panel-toggle:focus-visible,
+.skill-chip-remove:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* ==========================================================
+   Skills manager
+   ========================================================== */
+.skills-manager {
+    padding: 18px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.skills-manager-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.skills-manager-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.skill-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 5px 6px 5px 10px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    color: var(--ink-soft);
+}
+
+.skill-chip-remove {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.72rem;
+    line-height: 1;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.skill-chip-remove:hover {
+    background: var(--red);
+    color: #fff;
+}
+
+.skills-manager-add {
+    margin-bottom: 0;
+}
+
+.skills-manager-add input {
+    flex: 1;
+    min-width: 160px;
+}
+
+/* ==========================================================
+   Calendar agenda
+   ========================================================== */
+.calendar-toolbar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+}
+
+.calendar-toolbar-stat {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 160px;
+}
+
+.calendar-agenda {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+}
+
+.calendar-day {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.calendar-day-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.calendar-day-marker {
+    width: 46px;
+    height: 46px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface);
+    border: 1px solid var(--ink);
+    border-radius: var(--radius-sm);
+}
+
+.calendar-day-weekday {
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.calendar-day-number {
+    font-family: var(--font-mono);
+    font-size: 1.05rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--ink);
+}
+
+.calendar-day-label {
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.calendar-day-count {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--text-muted);
+}
+
+.calendar-day-items {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-left: 58px;
+}
+
+.calendar-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 12px 16px;
+}
+
+.calendar-item.backlog      { border-left-color: var(--amber); }
+.calendar-item.in_progress  { border-left-color: var(--blue); }
+.calendar-item.completed    { border-left-color: var(--teal); }
+
+.calendar-item-main {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.calendar-item-title {
+    font-weight: 600;
+    font-size: 0.92rem;
+}
+
+.calendar-item-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.calendar-item-side {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.calendar-sync {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--text-muted);
+}
+
+.calendar-sync.synced {
+    color: var(--teal);
+}
+
+/* ==========================================================
+   Panel polish
+   ========================================================== */
+.panel-toggle {
+    gap: 12px;
+}
+
+.panel-toggle-left {
+    flex-wrap: wrap;
+}
+
+.panel-toggle-hint {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    width: 100%;
+    margin-top: 2px;
+}
+
+.panel.open .panel-toggle-hint {
+    display: none;
+}
+
+.panel-body-inner {
+    background: linear-gradient(180deg, var(--paper) 0%, var(--surface) 120px);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    border-color: var(--accent);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(31, 143, 122, 0.15);
+}
+
+@media (max-width: 640px) {
+    .calendar-day-items {
+        padding-left: 0;
+    }
+    .form-layout {
+        grid-template-columns: 1fr;
+    }
 }

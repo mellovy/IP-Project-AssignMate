@@ -16,6 +16,7 @@
         </h2>
         <ul class="nav-links">
             <li><a href="task.html">Overview</a></li>
+            <li><a href="calendar.html">Calendar</a></li>
             <li><a href="project.html">Projects</a></li>
             <li class="active"><a href="user.html">Team Members</a></li>
         </ul>
@@ -47,11 +48,26 @@
                 </div>
             </header>
 
+            <div class="card" id="skills-panel" data-admin-only>
+                <div class="skills-manager">
+                    <div class="skills-manager-head">
+                        <span class="section-title">Skills</span>
+                        <span class="form-hint">Removing a skill takes it off every member</span>
+                    </div>
+                    <div id="skill-list" class="skill-manager-list"></div>
+                    <div class="form-row form-row-inline skills-manager-add">
+                        <input type="text" id="new-skill-name" placeholder="New skill name">
+                        <button class="btn btn-ghost btn-inline" onclick="addNewSkill()">+ Add Skill</button>
+                    </div>
+                </div>
+            </div>
+
             <div class="card panel" id="user-form-panel" data-admin-only>
                 <button class="panel-toggle" onclick="togglePanel(this)">
                     <span class="panel-toggle-left">
                         <span class="panel-toggle-icon">&#10022;</span>
                         <span class="panel-toggle-title">Add Team Member</span>
+                        <span class="panel-toggle-hint">They sign in with the email you add here</span>
                     </span>
                     <span class="panel-chevron">&#9662;</span>
                 </button>
@@ -71,13 +87,6 @@
                                 <div class="form-group">
                                     <label for="user-avatar">Avatar URL <span class="label-optional">(optional)</span></label>
                                     <input type="text" id="user-avatar" placeholder="https://...">
-                                </div>
-                                <div class="form-row form-row-inline" style="margin-bottom: 0;">
-                                    <div class="form-group grow-2">
-                                        <label for="new-skill-name">New skill</label>
-                                        <input type="text" id="new-skill-name" placeholder="Not listed yet? Add it here">
-                                    </div>
-                                    <button class="btn btn-ghost btn-inline" onclick="addNewSkill()">+ Add Skill</button>
                                 </div>
                             </div>
                             <div class="form-meta">

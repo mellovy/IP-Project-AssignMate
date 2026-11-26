@@ -8,11 +8,11 @@ test('daysUntilDeadline counts UTC calendar days', () => {
     assert.equal(daysUntilDeadline('2026-11-26', now), 0);
 });
 
-test('isReminderDue only targets assigned, incomplete tasks inside the window', () => {
+test('isReminderDue only targets in-progress, incomplete tasks inside the window', () => {
     const now = new Date('2026-11-26T12:00:00Z');
     const base = {
         assigned_user_email: 'member@example.com',
-        status: 'assigned',
+        status: 'in_progress',
         deadline: '2026-11-27'
     };
 
