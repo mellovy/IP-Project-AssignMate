@@ -35,32 +35,63 @@
                     <h2>Calendar</h2>
                     <div style="color: var(--text-muted); font-size: 0.72rem;">Deadlines are added to Google Calendar automatically</div>
                 </div>
+                <div class="cal-nav">
+                    <button type="button" class="cal-nav-btn" onclick="changeMonth(-1)" aria-label="Previous month">&#8249;</button>
+                    <button type="button" class="cal-nav-btn cal-today-btn" onclick="goToday()">Today</button>
+                    <button type="button" class="cal-nav-btn" onclick="changeMonth(1)" aria-label="Next month">&#8250;</button>
+                </div>
             </header>
 
-            <div class="calendar-toolbar">
-                <div class="calendar-toolbar-stat">
-                    <span class="stat-label">Upcoming deadlines</span>
+            <div class="cal-toolbar">
+                <div class="cal-toolbar-stat">
+                    <span class="stat-label">Deadlines this month</span>
                     <span class="stat-value" id="calendar-count">0</span>
                 </div>
-                <div class="calendar-toolbar-stat">
+                <div class="cal-toolbar-stat">
                     <span class="stat-label">On Google Calendar</span>
                     <span class="stat-value" id="calendar-synced">0</span>
                 </div>
-            </div>
-
-            <div id="calendar-container" class="calendar-agenda">
-                <div class="empty-state">
-                    <div class="empty-icon">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
-                            <rect x="3" y="4" width="18" height="18" rx="2"/>
-                            <line x1="16" y1="2" x2="16" y2="6"/>
-                            <line x1="8" y1="2" x2="8" y2="6"/>
-                            <line x1="3" y1="10" x2="21" y2="10"/>
-                        </svg>
-                    </div>
-                    <p>Loading deadlines...</p>
+                <div class="cal-legend">
+                    <span class="cal-legend-item"><span class="cal-dot backlog"></span>Backlog</span>
+                    <span class="cal-legend-item"><span class="cal-dot in_progress"></span>In Progress</span>
+                    <span class="cal-legend-item"><span class="cal-dot completed"></span>Complete</span>
                 </div>
             </div>
+
+            <div class="cal-month-label" id="calendar-month-label">Loading&hellip;</div>
+
+            <aside class="cal-detail" id="calendar-detail" hidden>
+                <div class="cal-detail-head">
+                    <span class="cal-detail-status" id="cal-detail-status"></span>
+                    <button type="button" class="cal-detail-close" onclick="closeDetail()" aria-label="Close details">&#10005;</button>
+                </div>
+                <h3 class="cal-detail-title" id="cal-detail-title"></h3>
+                <div class="cal-detail-rows">
+                    <div><span class="cal-detail-label">Deadline</span><span id="cal-detail-deadline"></span></div>
+                    <div><span class="cal-detail-label">Owner</span><span id="cal-detail-owner"></span></div>
+                    <div><span class="cal-detail-label">Skill</span><span id="cal-detail-skill"></span></div>
+                    <div><span class="cal-detail-label">Calendar</span><span id="cal-detail-sync"></span></div>
+                </div>
+                <button type="button" class="btn btn-calendar" onclick="openInGoogleCalendar(selectedTaskId)">
+                    <span>&#128197;</span>
+                    <span>Open in Google Calendar</span>
+                </button>
+            </aside>
+
+            <div class="cal-grid-wrap">
+                <div class="cal-weekdays">
+                    <span class="cal-weekday">Mon</span>
+                    <span class="cal-weekday">Tue</span>
+                    <span class="cal-weekday">Wed</span>
+                    <span class="cal-weekday">Thu</span>
+                    <span class="cal-weekday">Fri</span>
+                    <span class="cal-weekday">Sat</span>
+                    <span class="cal-weekday">Sun</span>
+                </div>
+                <div class="cal-grid" id="calendar-container"></div>
+            </div>
+
+            <div class="cal-list" id="calendar-list"></div>
         </section>
     </main>
 
